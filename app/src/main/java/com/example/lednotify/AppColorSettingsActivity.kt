@@ -11,12 +11,15 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.GridLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.ProgressBar
+import android.widget.Switch
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.cardview.widget.CardView
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -28,13 +31,17 @@ data class AppInfoItem(
     val appName: String,
     val packageName: String,
     val icon: Drawable,
-    var color: Int
+    var color: Int,
+    var isEnabled: Boolean
 )
 
 class AppColorSettingsActivity : ComponentActivity() {
 
     private lateinit var btnBack: ImageButton
     private lateinit var tvAppCount: TextView
+    private lateinit var tvEnabledSummary: TextView
+    private lateinit var btnDisableAll: Button
+    private lateinit var btnEnableAll: Button
     private lateinit var progressBar: ProgressBar
     private lateinit var tvEmptyState: TextView
     private lateinit var rvAppColors: RecyclerView
@@ -46,19 +53,55 @@ class AppColorSettingsActivity : ComponentActivity() {
 
         btnBack = findViewById(R.id.btnBack)
         tvAppCount = findViewById(R.id.tvAppCount)
+        tvEnabledSummary = findViewById(R.id.tvEnabledSummary)
+        btnDisableAll = findViewById(R.id.btnDisableAll)
+        btnEnableAll = findViewById(R.id.btnEnableAll)
         progressBar = findViewById(R.id.progressBar)
         tvEmptyState = findViewById(R.id.tvEmptyState)
         rvAppColors = findViewById(R.id.rvAppColors)
 
         btnBack.setOnClickListener { finish() }
 
-        adapter = AppColorsAdapter { item, position ->
-            showColorPickerDialog(item, position)
-        }
+        adapter = AppColorsAdapter(
+            onItemClick = { item, position ->
+                showColorPickerDialog(item, position)
+            },
+            onToggleEnabled = { item, isEnabled ->
+                AppColorManager.setAppEnabled(this, item.packageName, isEnabled)
+                item.isEnabled = isEnabled
+                updateSummary()
+            }
+        )
         rvAppColors.layoutManager = LinearLayoutManager(this)
         rvAppColors.adapter = adapter
 
+        btnEnableAll.setOnClickListener {
+            val allItems = adapter.getItems()
+            for (item in allItems) {
+                item.isEnabled = true
+                AppColorManager.setAppEnabled(this, item.packageName, true)
+            }
+            adapter.notifyDataSetChanged()
+            updateSummary()
+        }
+
+        btnDisableAll.setOnClickListener {
+            val allItems = adapter.getItems()
+            for (item in allItems) {
+                item.isEnabled = false
+                AppColorManager.setAppEnabled(this, item.packageName, false)
+            }
+            adapter.notifyDataSetChanged()
+            updateSummary()
+        }
+
         loadInstalledUserApps()
+    }
+
+    private fun updateSummary() {
+        val allItems = adapter.getItems()
+        val enabledCount = allItems.count { it.isEnabled }
+        tvEnabledSummary.text = "$enabledCount of ${allItems.size} apps enabled for LED"
     }
 
     private fun loadInstalledUserApps() {
@@ -84,7 +127,8 @@ class AppColorSettingsActivity : ComponentActivity() {
                 val label = app.loadLabel(pm).toString()
                 val icon = app.loadIcon(pm)
                 val color = AppColorManager.getColorForPackage(applicationContext, app.packageName)
-                AppInfoItem(label, app.packageName, icon, color)
+                val isEnabled = AppColorManager.isAppEnabled(applicationContext, app.packageName)
+                AppInfoItem(label, app.packageName, icon, color, isEnabled)
             }.sortedBy { it.appName.lowercase() }
 
             withContext(Dispatchers.Main) {
@@ -92,9 +136,11 @@ class AppColorSettingsActivity : ComponentActivity() {
                 if (userApps.isEmpty()) {
                     tvEmptyState.visibility = View.VISIBLE
                     tvAppCount.text = "No user apps found"
+                    tvEnabledSummary.text = "0 apps enabled"
                 } else {
-                    tvAppCount.text = "${userApps.size} apps found. Tap to customize LED color."
+                    tvAppCount.text = "${userApps.size} apps found. Toggle to allow LED."
                     adapter.setItems(userApps)
+                    updateSummary()
                 }
             }
         }
@@ -137,6 +183,12 @@ class AppColorSettingsActivity : ComponentActivity() {
                 }
                 setOnClickListener {
                     AppColorManager.setColorForPackage(this@AppColorSettingsActivity, item.packageName, color)
+                    // If user selects color, make sure app is enabled
+                    if (!item.isEnabled) {
+                        item.isEnabled = true
+                        AppColorManager.setAppEnabled(this@AppColorSettingsActivity, item.packageName, true)
+                        updateSummary()
+                    }
                     item.color = color
                     adapter.notifyItemChanged(position)
                     dialog.dismiss()
@@ -150,7 +202,8 @@ class AppColorSettingsActivity : ComponentActivity() {
 }
 
 class AppColorsAdapter(
-    private val onItemClick: (AppInfoItem, Int) -> Unit
+    private val onItemClick: (AppInfoItem, Int) -> Unit,
+    private val onToggleEnabled: (AppInfoItem, Boolean) -> Unit
 ) : RecyclerView.Adapter<AppColorsAdapter.AppViewHolder>() {
 
     private val items = mutableListOf<AppInfoItem>()
@@ -160,6 +213,8 @@ class AppColorsAdapter(
         items.addAll(newItems)
         notifyDataSetChanged()
     }
+
+    fun getItems(): List<AppInfoItem> = items
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): AppViewHolder {
         val view = LayoutInflater.from(parent.context).inflate(R.layout.item_app_color, parent, false)
@@ -174,10 +229,12 @@ class AppColorsAdapter(
     override fun getItemCount(): Int = items.size
 
     inner class AppViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val cardApp: CardView = itemView.findViewById(R.id.cardApp)
         private val ivAppIcon: ImageView = itemView.findViewById(R.id.ivAppIcon)
         private val tvAppName: TextView = itemView.findViewById(R.id.tvAppName)
         private val tvAppPackage: TextView = itemView.findViewById(R.id.tvAppPackage)
         private val viewColorPreview: View = itemView.findViewById(R.id.viewColorPreview)
+        private val switchAppEnabled: Switch = itemView.findViewById(R.id.switchAppEnabled)
 
         fun bind(item: AppInfoItem) {
             ivAppIcon.setImageDrawable(item.icon)
@@ -187,6 +244,21 @@ class AppColorsAdapter(
             viewColorPreview.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(item.color)
+            }
+
+            // Temporarily clear listener to prevent firing on recycling
+            switchAppEnabled.setOnCheckedChangeListener(null)
+            switchAppEnabled.isChecked = item.isEnabled
+            cardApp.alpha = if (item.isEnabled) 1.0f else 0.5f
+
+            switchAppEnabled.setOnCheckedChangeListener { _, isChecked ->
+                item.isEnabled = isChecked
+                cardApp.alpha = if (isChecked) 1.0f else 0.5f
+                onToggleEnabled(item, isChecked)
+            }
+
+            viewColorPreview.setOnClickListener {
+                onItemClick(item, bindingAdapterPosition)
             }
 
             itemView.setOnClickListener {

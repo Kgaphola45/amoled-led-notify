@@ -32,7 +32,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Per-App LED Colors"
+                android:text="Per-App LED Notifications"
                 android:textColor="#FFFFFF"
                 android:textSize="18sp"
                 android:textStyle="bold" />
@@ -41,10 +41,51 @@
                 android:id="@+id/tvAppCount"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Tap an app to choose its LED notification color"
+                android:text="Choose which apps use the LED and their colors"
                 android:textColor="#AAAAAA"
                 android:textSize="12sp" />
         </LinearLayout>
+    </LinearLayout>
+
+    <!-- Filter Control Bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#181818"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:id="@+id/tvEnabledSummary"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="0 apps enabled"
+            android:textColor="#81C784"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnDisableAll"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Disable All"
+            android:textColor="#FF5252"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btnEnableAll"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Enable All"
+            android:textColor="#4CAF50"
+            android:textSize="12sp" />
     </LinearLayout>
 
     <FrameLayout

@@ -6,6 +6,7 @@ object AppColorManager {
     const val PREFS_NAME = "app_colors"
     const val KEY_DEFAULT_COLOR = "default_color"
     private const val KEY_INITIALIZED = "is_initialized"
+    private const val PREFIX_ENABLED = "enabled_"
 
     // 12 vibrant colors for LED notifications
     val PALETTE_12 = listOf(
@@ -28,13 +29,31 @@ object AppColorManager {
         if (!prefs.getBoolean(KEY_INITIALIZED, false)) {
             prefs.edit()
                 .putInt(KEY_DEFAULT_COLOR, 0xFF00FF00.toInt())
+                // Pre-fill colors
                 .putInt("com.whatsapp", 0xFF00FF00.toInt())           // Green #00FF00
                 .putInt("com.instagram.android", 0xFFFF00FF.toInt())  // Magenta #FF00FF
                 .putInt("com.facebook.katana", 0xFF00BFFF.toInt())    // Blue #00BFFF
                 .putInt("com.google.android.gm", 0xFFFF0000.toInt())  // Red #FF0000
+                // Pre-enable only popular apps by default; all others are disabled until user chooses
+                .putBoolean(PREFIX_ENABLED + "com.whatsapp", true)
+                .putBoolean(PREFIX_ENABLED + "com.instagram.android", true)
+                .putBoolean(PREFIX_ENABLED + "com.facebook.katana", true)
+                .putBoolean(PREFIX_ENABLED + "com.google.android.gm", true)
                 .putBoolean(KEY_INITIALIZED, true)
                 .apply()
         }
+    }
+
+    fun isAppEnabled(context: Context, packageName: String?): Boolean {
+        if (packageName == null) return false
+        initializeDefaultsIfNeeded(context)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(PREFIX_ENABLED + packageName, false)
+    }
+
+    fun setAppEnabled(context: Context, packageName: String, enabled: Boolean) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(PREFIX_ENABLED + packageName, enabled).apply()
     }
 
     fun getColorForPackage(context: Context, packageName: String?): Int {
