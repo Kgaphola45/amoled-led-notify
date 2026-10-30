@@ -20,8 +20,9 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.FrameLayout
-import android.widget.TextView
+import android.widget.LinearLayout
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
@@ -152,7 +153,6 @@ class LedOverlayService : Service() {
             return
         }
 
-        // Per-App color takes precedence, fallback to default_color in app_colors or led_prefs
         val color = AppColorManager.getColorForPackage(this, currentPackageName)
 
         // If overlay already displayed, simply refresh the LED color to the new app's color
@@ -207,16 +207,11 @@ class LedOverlayService : Service() {
         val density = resources.displayMetrics.density
         val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
 
+        val overlayRoot = view.findViewById<FrameLayout>(R.id.overlayRoot)
         val ledTouchContainer = view.findViewById<FrameLayout>(R.id.ledTouchContainer)
         val ledDot = view.findViewById<View>(R.id.ledDot)
         val dragGuideRing = view.findViewById<View>(R.id.dragGuideRing)
-        val tvPositionPrompt = view.findViewById<TextView>(R.id.tvPositionPrompt)
-
-        if (isPositioningMode) {
-            tvPositionPrompt.visibility = View.VISIBLE
-        } else {
-            tvPositionPrompt.visibility = View.GONE
-        }
+        val layoutPositioningControls = view.findViewById<LinearLayout>(R.id.layoutPositioningControls)
 
         // Apply dot size
         val dotParams = ledDot.layoutParams
@@ -231,8 +226,8 @@ class LedOverlayService : Service() {
         }
         ledDot.background = drawable
 
-        // Generous touch hitbox (at least 54dp) so even a 2dp dot is easy to drag into corners
-        val touchSize = maxOf(sizePx, (54 * density).toInt())
+        // Generous touch hitbox (at least 60dp) so even a 2dp dot is easy to drag into corners
+        val touchSize = maxOf(sizePx, (60 * density).toInt())
         val containerParams = ledTouchContainer.layoutParams
         containerParams.width = touchSize
         containerParams.height = touchSize
@@ -247,11 +242,31 @@ class LedOverlayService : Service() {
         dragGuideRing.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(Color.TRANSPARENT)
-            setStroke((2 * density).toInt(), Color.argb(200, 255, 255, 255))
+            setStroke((2 * density).toInt(), Color.argb(220, 255, 255, 255))
         }
 
         var dotX = 0f
         var dotY = 0f
+
+        fun updateDotPosition(newX: Float, newY: Float) {
+            val screenW = view.width.toFloat()
+            val screenH = view.height.toFloat()
+            val maxX = (screenW - sizePx).coerceAtLeast(0f)
+            val maxY = (screenH - sizePx).coerceAtLeast(0f)
+
+            dotX = if (maxX > 0f) newX.coerceIn(0f, maxX) else newX
+            dotY = if (maxY > 0f) newY.coerceIn(0f, maxY) else newY
+
+            ledTouchContainer.x = dotX - (touchSize - sizePx) / 2f
+            ledTouchContainer.y = dotY - (touchSize - sizePx) / 2f
+        }
+
+        fun saveCurrentPosition() {
+            prefs.edit()
+                .putFloat(KEY_POS_X, dotX)
+                .putFloat(KEY_POS_Y, dotY)
+                .apply()
+        }
 
         // Calculate and apply initial position
         view.post {
@@ -259,17 +274,11 @@ class LedOverlayService : Service() {
             val screenH = view.height.toFloat()
 
             if (savedPosX >= 0f && savedPosY >= 0f) {
-                dotX = savedPosX.coerceIn(0f, (screenW - sizePx).coerceAtLeast(0f))
-                dotY = savedPosY.coerceIn(0f, (screenH - sizePx).coerceAtLeast(0f))
+                updateDotPosition(savedPosX, savedPosY)
             } else {
-                // Default to top-right corner
-                val margin = 16 * density
-                dotX = (screenW - sizePx - margin).coerceAtLeast(0f)
-                dotY = margin
+                val margin = 12 * density
+                updateDotPosition(screenW - sizePx - margin, margin)
             }
-
-            ledTouchContainer.x = dotX - (touchSize - sizePx) / 2f
-            ledTouchContainer.y = dotY - (touchSize - sizePx) / 2f
         }
 
         // Setup blink animation: alpha 1f to 0f, 600ms, INFINITE REVERSE
@@ -280,10 +289,11 @@ class LedOverlayService : Service() {
             start()
         }
 
-        // Touch listener on container enables dragging to any position including extreme corners
         var dX = 0f
         var dY = 0f
-        ledTouchContainer.setOnTouchListener { v, event ->
+
+        // Touch listener on container allows dragging directly
+        ledTouchContainer.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     dX = dotX - event.rawX
@@ -294,21 +304,7 @@ class LedOverlayService : Service() {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val rawX = event.rawX + dX
-                    val rawY = event.rawY + dY
-
-                    val screenW = overlayView?.width?.toFloat() ?: 0f
-                    val screenH = overlayView?.height?.toFloat() ?: 0f
-
-                    val maxX = (screenW - sizePx).coerceAtLeast(0f)
-                    val maxY = (screenH - sizePx).coerceAtLeast(0f)
-
-                    // Allow positioning to the literal edge/corners [0..maxX, 0..maxY]
-                    dotX = if (maxX > 0f) rawX.coerceIn(0f, maxX) else rawX
-                    dotY = if (maxY > 0f) rawY.coerceIn(0f, maxY) else rawY
-
-                    v.x = dotX - (touchSize - sizePx) / 2f
-                    v.y = dotY - (touchSize - sizePx) / 2f
+                    updateDotPosition(event.rawX + dX, event.rawY + dY)
                     true
                 }
                 MotionEvent.ACTION_UP -> {
@@ -316,10 +312,7 @@ class LedOverlayService : Service() {
                     if (animator?.isPaused == true) {
                         animator?.resume()
                     }
-                    prefs.edit()
-                        .putFloat(KEY_POS_X, dotX)
-                        .putFloat(KEY_POS_Y, dotY)
-                        .apply()
+                    saveCurrentPosition()
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
@@ -333,10 +326,74 @@ class LedOverlayService : Service() {
             }
         }
 
-        // Tapping overlay background (pure black) stops the service
-        val overlayRoot = view.findViewById<View>(R.id.overlayRoot)
-        overlayRoot.setOnClickListener {
-            stopSelf()
+        if (isPositioningMode) {
+            layoutPositioningControls.visibility = View.VISIBLE
+
+            // In positioning mode: Touching ANYWHERE on the screen moves the dot directly to your finger!
+            overlayRoot.setOnTouchListener { _, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                        animator?.pause()
+                        ledDot.alpha = 1f
+                        dragGuideRing.visibility = View.VISIBLE
+                        // Place dot center right under finger
+                        updateDotPosition(event.rawX - sizePx / 2f, event.rawY - sizePx / 2f)
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        dragGuideRing.visibility = View.GONE
+                        if (animator?.isPaused == true) {
+                            animator?.resume()
+                        }
+                        saveCurrentPosition()
+                        true
+                    }
+                    MotionEvent.ACTION_CANCEL -> {
+                        dragGuideRing.visibility = View.GONE
+                        if (animator?.isPaused == true) {
+                            animator?.resume()
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+
+            // Quick corner buttons right on the overlay
+            val margin = 8f * density
+            view.findViewById<Button>(R.id.btnOverlayCornerTL).setOnClickListener {
+                updateDotPosition(margin, margin)
+                saveCurrentPosition()
+            }
+            view.findViewById<Button>(R.id.btnOverlayCornerTR).setOnClickListener {
+                val screenW = view.width.toFloat()
+                updateDotPosition(screenW - sizePx - margin, margin)
+                saveCurrentPosition()
+            }
+            view.findViewById<Button>(R.id.btnOverlayCornerBL).setOnClickListener {
+                val screenH = view.height.toFloat()
+                updateDotPosition(margin, screenH - sizePx - margin)
+                saveCurrentPosition()
+            }
+            view.findViewById<Button>(R.id.btnOverlayCornerBR).setOnClickListener {
+                val screenW = view.width.toFloat()
+                val screenH = view.height.toFloat()
+                updateDotPosition(screenW - sizePx - margin, screenH - sizePx - margin)
+                saveCurrentPosition()
+            }
+
+            // Save & exit button
+            view.findViewById<Button>(R.id.btnSavePosition).setOnClickListener {
+                saveCurrentPosition()
+                stopSelf()
+            }
+        } else {
+            layoutPositioningControls.visibility = View.GONE
+
+            // In notification mode: Tapping overlay background (pure black) dismisses it
+            overlayRoot.setOnClickListener {
+                stopSelf()
+            }
         }
 
         overlayView = view

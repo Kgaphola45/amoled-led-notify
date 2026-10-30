@@ -102,7 +102,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Choose unique LED colors for WhatsApp, Instagram, Gmail, and any user app."
+                android:text="Choose which apps use the LED and customize their individual colors."
                 android:textColor="#AAAAAA"
                 android:textSize="12sp" />
 
@@ -112,7 +112,7 @@
                 android:layout_height="50dp"
                 android:layout_marginTop="12dp"
                 android:backgroundTint="#5E35B1"
-                android:text="3. Set Colors Per App"
+                android:text="Choose Apps &amp; Colors"
                 android:textColor="#FFFFFF"
                 android:textSize="15sp"
                 android:textStyle="bold" />
@@ -171,7 +171,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Quick-set to any corner or drag freely on the actual screen:"
+                android:text="Quick-set to any corner, slide position, or drag directly on the screen:"
                 android:textColor="#AAAAAA"
                 android:textSize="12sp" />
 
@@ -233,11 +233,46 @@
                     android:textSize="12sp" />
             </LinearLayout>
 
+            <!-- Manual Position Sliders -->
+            <TextView
+                android:id="@+id/tvPosXLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="Horizontal Position (X): 90%"
+                android:textColor="#CCCCCC"
+                android:textSize="13sp" />
+
+            <SeekBar
+                android:id="@+id/seekBarPosX"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:max="100"
+                android:progress="90" />
+
+            <TextView
+                android:id="@+id/tvPosYLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Vertical Position (Y): 5%"
+                android:textColor="#CCCCCC"
+                android:textSize="13sp" />
+
+            <SeekBar
+                android:id="@+id/seekBarPosY"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:max="100"
+                android:progress="5" />
+
             <Button
                 android:id="@+id/btnPositionScreen"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="14dp"
                 android:backgroundTint="#1976D2"
                 android:text="Move &amp; Drag Anywhere on Screen"
                 android:textColor="#FFFFFF"
@@ -352,7 +387,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:gravity="center"
-                android:text="Tip: When the LED overlay appears, touch and drag the dot to position it anywhere. Tap anywhere else on the black background to dismiss."
+                android:text="Tip: In positioning mode, touch anywhere on screen to place the dot. In normal notification mode, tap anywhere on the black screen to dismiss."
                 android:textColor="#888888"
                 android:textSize="12sp" />
         </LinearLayout>

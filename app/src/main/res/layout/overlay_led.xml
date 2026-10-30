@@ -15,11 +15,11 @@
         android:clickable="true"
         android:focusable="true">
 
-        <!-- Visual guide ring visible only while dragging -->
+        <!-- Visual target guide ring while dragging -->
         <View
             android:id="@+id/dragGuideRing"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="54dp"
+            android:layout_height="54dp"
             android:layout_gravity="center"
             android:visibility="gone" />
 
@@ -32,22 +32,96 @@
             android:background="@drawable/led_circle" />
     </FrameLayout>
 
-    <!-- Interactive prompt guide visible when opened in positioning mode -->
-    <TextView
-        android:id="@+id/tvPositionPrompt"
-        android:layout_width="wrap_content"
+    <!-- Interactive On-Screen Positioning Controls (visible only in Positioning Mode) -->
+    <LinearLayout
+        android:id="@+id/layoutPositioningControls"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="36dp"
-        android:background="#DD222222"
-        android:paddingStart="16dp"
-        android:paddingTop="10dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="10dp"
-        android:text="Drag the dot anywhere on the screen (including corners).\nTap the black background to save and exit."
-        android:textAlignment="center"
-        android:textColor="#FFFFFF"
-        android:textSize="13sp"
-        android:visibility="gone" />
+        android:layout_gravity="bottom"
+        android:background="#EE1E1E1E"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvPositionPrompt"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Touch &amp; drag anywhere on the screen to move the LED dot.\nUse corner buttons for instant corner snapping."
+            android:textAlignment="center"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <!-- Quick corner snap buttons right on the overlay -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnOverlayCornerTL"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:backgroundTint="#333333"
+                android:text="Top-Left"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btnOverlayCornerTR"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:backgroundTint="#333333"
+                android:text="Top-Right"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnOverlayCornerBL"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:backgroundTint="#333333"
+                android:text="Bottom-Left"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btnOverlayCornerBR"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:backgroundTint="#333333"
+                android:text="Bottom-Right"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnSavePosition"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="12dp"
+            android:backgroundTint="#2E7D32"
+            android:text="Save Position &amp; Done"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
 </FrameLayout>
