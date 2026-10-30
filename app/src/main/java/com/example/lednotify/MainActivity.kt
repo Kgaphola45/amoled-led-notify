@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var tvOverlayStatus: TextView
     private lateinit var btnNotificationAccess: Button
     private lateinit var tvNotificationStatus: TextView
+    private lateinit var btnSetColorsPerApp: Button
     private lateinit var framePreviewContainer: FrameLayout
     private lateinit var previewLedDot: View
     private lateinit var tvSizeLabel: TextView
@@ -66,8 +67,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        AppColorManager.initializeDefaultsIfNeeded(this)
+
         bindViews()
         setupPermissions()
+        setupPerAppColorsButton()
         setupSizeControl()
         setupColorPicker()
         setupPositionControls()
@@ -81,7 +85,7 @@ class MainActivity : ComponentActivity() {
         updatePermissionStatuses()
         val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
         val size = prefs.getInt(LedOverlayService.KEY_SIZE, 22)
-        val color = prefs.getInt(LedOverlayService.KEY_COLOR, 0xFF00FF00.toInt())
+        val color = AppColorManager.getDefaultColor(this)
         updatePreviewDot(size, color)
     }
 
@@ -90,6 +94,7 @@ class MainActivity : ComponentActivity() {
         tvOverlayStatus = findViewById(R.id.tvOverlayStatus)
         btnNotificationAccess = findViewById(R.id.btnNotificationAccess)
         tvNotificationStatus = findViewById(R.id.tvNotificationStatus)
+        btnSetColorsPerApp = findViewById(R.id.btnSetColorsPerApp)
         framePreviewContainer = findViewById(R.id.framePreviewContainer)
         previewLedDot = findViewById(R.id.previewLedDot)
         tvSizeLabel = findViewById(R.id.tvSizeLabel)
@@ -129,6 +134,13 @@ class MainActivity : ComponentActivity() {
         updatePermissionStatuses()
     }
 
+    private fun setupPerAppColorsButton() {
+        btnSetColorsPerApp.setOnClickListener {
+            val intent = Intent(this, AppColorSettingsActivity::class.java)
+            startActivity(intent)
+        }
+    }
+
     private fun updatePermissionStatuses() {
         val hasOverlay = Settings.canDrawOverlays(this)
         tvOverlayStatus.text = if (hasOverlay) {
@@ -160,14 +172,14 @@ class MainActivity : ComponentActivity() {
         seekBarSize.max = 98 // range 0 to 98 corresponds to 2 to 100 dp
         seekBarSize.progress = (savedSize - 2).coerceAtLeast(0)
 
-        updatePreviewDot(savedSize, prefs.getInt(LedOverlayService.KEY_COLOR, 0xFF00FF00.toInt()))
+        updatePreviewDot(savedSize, AppColorManager.getDefaultColor(this))
 
         seekBarSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 val currentSize = (progress + 2).coerceIn(2, 100)
                 tvSizeLabel.text = "LED Dot Size: ${currentSize}dp"
                 prefs.edit().putInt(LedOverlayService.KEY_SIZE, currentSize).apply()
-                val currentColor = prefs.getInt(LedOverlayService.KEY_COLOR, 0xFF00FF00.toInt())
+                val currentColor = AppColorManager.getDefaultColor(this@MainActivity)
                 updatePreviewDot(currentSize, currentColor)
             }
 
@@ -197,6 +209,7 @@ class MainActivity : ComponentActivity() {
                 setOnClickListener {
                     currentColor = color
                     prefs.edit().putInt(LedOverlayService.KEY_COLOR, color).apply()
+                    AppColorManager.setDefaultColor(this@MainActivity, color)
                     refreshColorSelection(currentColor)
                     val currentSize = prefs.getInt(LedOverlayService.KEY_SIZE, 22)
                     updatePreviewDot(currentSize, color)
@@ -253,7 +266,7 @@ class MainActivity : ComponentActivity() {
                 .putFloat(LedOverlayService.KEY_POS_Y, posY)
                 .apply()
 
-            val currentColor = prefs.getInt(LedOverlayService.KEY_COLOR, 0xFF00FF00.toInt())
+            val currentColor = AppColorManager.getDefaultColor(this)
             updatePreviewDot(sizeDp, currentColor)
             Toast.makeText(this, "Position set to $name", Toast.LENGTH_SHORT).show()
         }
