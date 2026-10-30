@@ -135,16 +135,17 @@ class MainActivity : ComponentActivity() {
 
     private fun setupSizeControl() {
         val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
-        val savedSize = prefs.getInt(LedOverlayService.KEY_SIZE, 22).coerceIn(10, 100)
+        val savedSize = prefs.getInt(LedOverlayService.KEY_SIZE, 22).coerceIn(2, 100)
 
         tvSizeLabel.text = "LED Dot Size: ${savedSize}dp"
-        seekBarSize.progress = savedSize - 10 // range 0 to 90 corresponds to 10 to 100 dp
+        seekBarSize.max = 98 // range 0 to 98 corresponds to 2 to 100 dp
+        seekBarSize.progress = (savedSize - 2).coerceAtLeast(0)
 
         updatePreviewDot(savedSize, prefs.getInt(LedOverlayService.KEY_COLOR, 0xFF00FF00.toInt()))
 
         seekBarSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val currentSize = (progress + 10).coerceIn(10, 100)
+                val currentSize = (progress + 2).coerceIn(2, 100)
                 tvSizeLabel.text = "LED Dot Size: ${currentSize}dp"
                 prefs.edit().putInt(LedOverlayService.KEY_SIZE, currentSize).apply()
                 val currentColor = prefs.getInt(LedOverlayService.KEY_COLOR, 0xFF00FF00.toInt())
@@ -210,7 +211,7 @@ class MainActivity : ComponentActivity() {
 
     private fun updatePreviewDot(sizeDp: Int, color: Int) {
         val density = resources.displayMetrics.density
-        val sizePx = (sizeDp * density).toInt().coerceAtLeast(10)
+        val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
         val params = previewLedDot.layoutParams
         params.width = sizePx
         params.height = sizePx

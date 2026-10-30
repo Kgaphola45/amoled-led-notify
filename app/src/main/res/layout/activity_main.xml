@@ -136,8 +136,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:max="90"
-                android:progress="12" />
+                android:max="98"
+                android:progress="20" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -148,7 +148,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="10dp"
+                    android:text="2dp"
                     android:textColor="#777777"
                     android:textSize="12sp" />
 

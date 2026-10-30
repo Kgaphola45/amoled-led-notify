@@ -7,10 +7,47 @@
     android:clickable="true"
     android:focusable="true">
 
-    <View
-        android:id="@+id/ledDot"
-        android:layout_width="22dp"
-        android:layout_height="22dp"
-        android:background="@drawable/led_circle" />
+    <!-- Draggable touch target container (generous touch area so even 2dp dot is easy to drag) -->
+    <FrameLayout
+        android:id="@+id/ledTouchContainer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:clickable="true"
+        android:focusable="true">
+
+        <!-- Visual guide ring visible only while dragging -->
+        <View
+            android:id="@+id/dragGuideRing"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+
+        <!-- The actual LED dot view -->
+        <View
+            android:id="@+id/ledDot"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="center"
+            android:background="@drawable/led_circle" />
+    </FrameLayout>
+
+    <!-- Interactive prompt guide visible when opened in positioning mode -->
+    <TextView
+        android:id="@+id/tvPositionPrompt"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="36dp"
+        android:background="#DD222222"
+        android:paddingStart="16dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="10dp"
+        android:text="Drag the dot anywhere on the screen (including corners).\nTap the black background to save and exit."
+        android:textAlignment="center"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:visibility="gone" />
 
 </FrameLayout>

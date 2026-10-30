@@ -173,7 +173,7 @@ class LedOverlayService : Service() {
         val savedPosX = prefs.getFloat(KEY_POS_X, -1f)
         val savedPosY = prefs.getFloat(KEY_POS_Y, -1f)
 
-        val sizePx = (sizeDp * resources.displayMetrics.density).toInt().coerceAtLeast(10)
+        val sizePx = (sizeDp * resources.displayMetrics.density).toInt().coerceAtLeast(2)
 
         val ledDot = view.findViewById<View>(R.id.ledDot)
 
