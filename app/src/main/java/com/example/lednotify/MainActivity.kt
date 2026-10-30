@@ -10,8 +10,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
@@ -27,10 +29,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var tvOverlayStatus: TextView
     private lateinit var btnNotificationAccess: Button
     private lateinit var tvNotificationStatus: TextView
+    private lateinit var framePreviewContainer: FrameLayout
+    private lateinit var previewLedDot: View
     private lateinit var tvSizeLabel: TextView
     private lateinit var seekBarSize: SeekBar
-    private lateinit var previewLedDot: View
     private lateinit var layoutColors: LinearLayout
+    private lateinit var btnCornerTopLeft: Button
+    private lateinit var btnCornerTopRight: Button
+    private lateinit var btnCornerBottomLeft: Button
+    private lateinit var btnCornerBottomRight: Button
+    private lateinit var btnPositionScreen: Button
     private lateinit var btnTestLed: Button
     private lateinit var btnStopLed: Button
 
@@ -62,6 +70,7 @@ class MainActivity : ComponentActivity() {
         setupPermissions()
         setupSizeControl()
         setupColorPicker()
+        setupPositionControls()
         setupActionButtons()
 
         requestNotificationPermissionIfNeeded()
@@ -70,6 +79,10 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         updatePermissionStatuses()
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+        val size = prefs.getInt(LedOverlayService.KEY_SIZE, 22)
+        val color = prefs.getInt(LedOverlayService.KEY_COLOR, 0xFF00FF00.toInt())
+        updatePreviewDot(size, color)
     }
 
     private fun bindViews() {
@@ -77,10 +90,16 @@ class MainActivity : ComponentActivity() {
         tvOverlayStatus = findViewById(R.id.tvOverlayStatus)
         btnNotificationAccess = findViewById(R.id.btnNotificationAccess)
         tvNotificationStatus = findViewById(R.id.tvNotificationStatus)
+        framePreviewContainer = findViewById(R.id.framePreviewContainer)
+        previewLedDot = findViewById(R.id.previewLedDot)
         tvSizeLabel = findViewById(R.id.tvSizeLabel)
         seekBarSize = findViewById(R.id.seekBarSize)
-        previewLedDot = findViewById(R.id.previewLedDot)
         layoutColors = findViewById(R.id.layoutColors)
+        btnCornerTopLeft = findViewById(R.id.btnCornerTopLeft)
+        btnCornerTopRight = findViewById(R.id.btnCornerTopRight)
+        btnCornerBottomLeft = findViewById(R.id.btnCornerBottomLeft)
+        btnCornerBottomRight = findViewById(R.id.btnCornerBottomRight)
+        btnPositionScreen = findViewById(R.id.btnPositionScreen)
         btnTestLed = findViewById(R.id.btnTestLed)
         btnStopLed = findViewById(R.id.btnStopLed)
     }
@@ -209,13 +228,97 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun setupPositionControls() {
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+        val density = resources.displayMetrics.density
+
+        fun setCorner(name: String, cornerGravity: Int) {
+            val screenW = resources.displayMetrics.widthPixels.toFloat()
+            val screenH = resources.displayMetrics.heightPixels.toFloat()
+            val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 22)
+            val sizePx = sizeDp * density
+            val margin = 8f * density
+
+            val posX = when (cornerGravity) {
+                Gravity.TOP or Gravity.START, Gravity.BOTTOM or Gravity.START -> margin
+                else -> (screenW - sizePx - margin).coerceAtLeast(0f)
+            }
+            val posY = when (cornerGravity) {
+                Gravity.TOP or Gravity.START, Gravity.TOP or Gravity.END -> margin
+                else -> (screenH - sizePx - margin).coerceAtLeast(0f)
+            }
+
+            prefs.edit()
+                .putFloat(LedOverlayService.KEY_POS_X, posX)
+                .putFloat(LedOverlayService.KEY_POS_Y, posY)
+                .apply()
+
+            val currentColor = prefs.getInt(LedOverlayService.KEY_COLOR, 0xFF00FF00.toInt())
+            updatePreviewDot(sizeDp, currentColor)
+            Toast.makeText(this, "Position set to $name", Toast.LENGTH_SHORT).show()
+        }
+
+        btnCornerTopLeft.setOnClickListener {
+            setCorner("Top-Left", Gravity.TOP or Gravity.START)
+        }
+
+        btnCornerTopRight.setOnClickListener {
+            setCorner("Top-Right", Gravity.TOP or Gravity.END)
+        }
+
+        btnCornerBottomLeft.setOnClickListener {
+            setCorner("Bottom-Left", Gravity.BOTTOM or Gravity.START)
+        }
+
+        btnCornerBottomRight.setOnClickListener {
+            setCorner("Bottom-Right", Gravity.BOTTOM or Gravity.END)
+        }
+
+        btnPositionScreen.setOnClickListener {
+            if (!Settings.canDrawOverlays(this)) {
+                Toast.makeText(this, "Please allow Overlay Permission first", Toast.LENGTH_LONG).show()
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+                return@setOnClickListener
+            }
+            requestNotificationPermissionIfNeeded()
+            LedOverlayService.startPositioning(this)
+            Toast.makeText(this, "Drag mode active! Drag the dot anywhere on the screen.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun updatePreviewDot(sizeDp: Int, color: Int) {
         val density = resources.displayMetrics.density
         val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
-        val params = previewLedDot.layoutParams
+        val params = previewLedDot.layoutParams as FrameLayout.LayoutParams
         params.width = sizePx
         params.height = sizePx
-        previewLedDot.layoutParams = params
+
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+        val savedPosX = prefs.getFloat(LedOverlayService.KEY_POS_X, -1f)
+        val savedPosY = prefs.getFloat(LedOverlayService.KEY_POS_Y, -1f)
+
+        framePreviewContainer.post {
+            val previewW = framePreviewContainer.width.toFloat()
+            val previewH = framePreviewContainer.height.toFloat()
+            val screenW = resources.displayMetrics.widthPixels.toFloat()
+            val screenH = resources.displayMetrics.heightPixels.toFloat()
+
+            if (savedPosX >= 0f && savedPosY >= 0f && screenW > 0f && screenH > 0f) {
+                val ratioX = (savedPosX / screenW).coerceIn(0f, 1f)
+                val ratioY = (savedPosY / screenH).coerceIn(0f, 1f)
+                params.gravity = Gravity.NO_GRAVITY
+                previewLedDot.x = ratioX * (previewW - sizePx)
+                previewLedDot.y = ratioY * (previewH - sizePx)
+            } else {
+                params.gravity = Gravity.TOP or Gravity.END
+                params.setMargins(0, (12 * density).toInt(), (12 * density).toInt(), 0)
+            }
+            previewLedDot.layoutParams = params
+        }
 
         val drawable = GradientDrawable().apply {
             shape = GradientDrawable.OVAL

@@ -9,6 +9,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -19,6 +20,8 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
@@ -28,6 +31,7 @@ class LedOverlayService : Service() {
     private var overlayView: View? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var animator: ObjectAnimator? = null
+    private var isPositioningMode = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -42,6 +46,8 @@ class LedOverlayService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+
+        isPositioningMode = (action == ACTION_POSITION_LED)
 
         startAsForeground()
         acquireWakeLock()
@@ -83,10 +89,16 @@ class LedOverlayService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val notificationText = if (isPositioningMode) {
+            "LED positioning mode active. Tap screen when finished."
+        } else {
+            "LED notification active. Tap black screen to dismiss."
+        }
+
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.led_circle)
             .setContentTitle("AMOLED LED Notify")
-            .setContentText("LED notification active. Tap black screen to dismiss.")
+            .setContentText(notificationText)
             .setContentIntent(contentPendingIntent)
             .addAction(0, "Stop LED", stopPendingIntent)
             .setOngoing(true)
@@ -148,6 +160,7 @@ class LedOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        // Full screen flags including cutout extension and reaching all 4 corners
         val layoutParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -155,11 +168,16 @@ class LedOverlayService : Service() {
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
                     WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
                     WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            layoutParams.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             layoutParams.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
@@ -173,33 +191,72 @@ class LedOverlayService : Service() {
         val savedPosX = prefs.getFloat(KEY_POS_X, -1f)
         val savedPosY = prefs.getFloat(KEY_POS_Y, -1f)
 
-        val sizePx = (sizeDp * resources.displayMetrics.density).toInt().coerceAtLeast(2)
+        val density = resources.displayMetrics.density
+        val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
 
+        val ledTouchContainer = view.findViewById<FrameLayout>(R.id.ledTouchContainer)
         val ledDot = view.findViewById<View>(R.id.ledDot)
+        val dragGuideRing = view.findViewById<View>(R.id.dragGuideRing)
+        val tvPositionPrompt = view.findViewById<TextView>(R.id.tvPositionPrompt)
 
-        // Apply size to dot width/height
+        if (isPositioningMode) {
+            tvPositionPrompt.visibility = View.VISIBLE
+        } else {
+            tvPositionPrompt.visibility = View.GONE
+        }
+
+        // Apply dot size
         val dotParams = ledDot.layoutParams
         dotParams.width = sizePx
         dotParams.height = sizePx
         ledDot.layoutParams = dotParams
 
-        // Apply color to GradientDrawable
+        // Apply dot color
         val drawable = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(color)
         }
         ledDot.background = drawable
 
-        // Set initial position
+        // Generous touch hitbox (at least 54dp) so even a 2dp dot is easy to drag into corners
+        val touchSize = maxOf(sizePx, (54 * density).toInt())
+        val containerParams = ledTouchContainer.layoutParams
+        containerParams.width = touchSize
+        containerParams.height = touchSize
+        ledTouchContainer.layoutParams = containerParams
+
+        // Guide ring around touch target for precise visual alignment while dragging
+        val ringSize = maxOf(sizePx + (16 * density).toInt(), (48 * density).toInt())
+        val ringParams = dragGuideRing.layoutParams
+        ringParams.width = ringSize
+        ringParams.height = ringSize
+        dragGuideRing.layoutParams = ringParams
+        dragGuideRing.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.TRANSPARENT)
+            setStroke((2 * density).toInt(), Color.argb(200, 255, 255, 255))
+        }
+
+        var dotX = 0f
+        var dotY = 0f
+
+        // Calculate and apply initial position
         view.post {
+            val screenW = view.width.toFloat()
+            val screenH = view.height.toFloat()
+
             if (savedPosX >= 0f && savedPosY >= 0f) {
-                ledDot.x = savedPosX
-                ledDot.y = savedPosY
+                dotX = savedPosX.coerceIn(0f, (screenW - sizePx).coerceAtLeast(0f))
+                dotY = savedPosY.coerceIn(0f, (screenH - sizePx).coerceAtLeast(0f))
             } else {
-                val margin = 24 * resources.displayMetrics.density
-                ledDot.x = (view.width - sizePx - margin).coerceAtLeast(0f)
-                ledDot.y = margin
+                // Default to top-right corner
+                val margin = 16 * density
+                dotX = (screenW - sizePx - margin).coerceAtLeast(0f)
+                dotY = margin
             }
+
+            ledTouchContainer.x = dotX - (touchSize - sizePx) / 2f
+            ledTouchContainer.y = dotY - (touchSize - sizePx) / 2f
         }
 
         // Setup blink animation: alpha 1f to 0f, 600ms, INFINITE REVERSE
@@ -210,41 +267,50 @@ class LedOverlayService : Service() {
             start()
         }
 
-        // Draggable dot: onTouchListener tracks ACTION_DOWN/MOVE/UP, pauses blink while dragging, saves posX/posY on ACTION_UP
+        // Touch listener on container enables dragging to any position including extreme corners
         var dX = 0f
         var dY = 0f
-        ledDot.setOnTouchListener { v, event ->
+        ledTouchContainer.setOnTouchListener { v, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    dX = v.x - event.rawX
-                    dY = v.y - event.rawY
+                    dX = dotX - event.rawX
+                    dY = dotY - event.rawY
                     animator?.pause()
-                    v.alpha = 1f
+                    ledDot.alpha = 1f
+                    dragGuideRing.visibility = View.VISIBLE
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val newX = event.rawX + dX
-                    val newY = event.rawY + dY
+                    val rawX = event.rawX + dX
+                    val rawY = event.rawY + dY
 
-                    val parent = overlayView
-                    val maxX = if (parent != null) (parent.width - v.width).toFloat() else newX
-                    val maxY = if (parent != null) (parent.height - v.height).toFloat() else newY
+                    val screenW = overlayView?.width?.toFloat() ?: 0f
+                    val screenH = overlayView?.height?.toFloat() ?: 0f
 
-                    v.x = if (maxX > 0) newX.coerceIn(0f, maxX) else newX
-                    v.y = if (maxY > 0) newY.coerceIn(0f, maxY) else newY
+                    val maxX = (screenW - sizePx).coerceAtLeast(0f)
+                    val maxY = (screenH - sizePx).coerceAtLeast(0f)
+
+                    // Allow positioning to the literal edge/corners [0..maxX, 0..maxY]
+                    dotX = if (maxX > 0f) rawX.coerceIn(0f, maxX) else rawX
+                    dotY = if (maxY > 0f) rawY.coerceIn(0f, maxY) else rawY
+
+                    v.x = dotX - (touchSize - sizePx) / 2f
+                    v.y = dotY - (touchSize - sizePx) / 2f
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    dragGuideRing.visibility = View.GONE
                     if (animator?.isPaused == true) {
                         animator?.resume()
                     }
                     prefs.edit()
-                        .putFloat(KEY_POS_X, v.x)
-                        .putFloat(KEY_POS_Y, v.y)
+                        .putFloat(KEY_POS_X, dotX)
+                        .putFloat(KEY_POS_Y, dotY)
                         .apply()
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    dragGuideRing.visibility = View.GONE
                     if (animator?.isPaused == true) {
                         animator?.resume()
                     }
@@ -305,6 +371,7 @@ class LedOverlayService : Service() {
     companion object {
         const val ACTION_START_LED = "START_LED"
         const val ACTION_STOP_LED = "STOP_LED"
+        const val ACTION_POSITION_LED = "POSITION_LED"
         const val ACTION_START = "com.example.lednotify.ACTION_START"
         const val ACTION_STOP = "com.example.lednotify.ACTION_STOP"
 
@@ -320,6 +387,13 @@ class LedOverlayService : Service() {
         fun start(context: Context) {
             val intent = Intent(context, LedOverlayService::class.java).apply {
                 action = ACTION_START_LED
+            }
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun startPositioning(context: Context) {
+            val intent = Intent(context, LedOverlayService::class.java).apply {
+                action = ACTION_POSITION_LED
             }
             ContextCompat.startForegroundService(context, intent)
         }
