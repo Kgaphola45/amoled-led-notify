@@ -32,6 +32,7 @@ class LedOverlayService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var animator: ObjectAnimator? = null
     private var isPositioningMode = false
+    private var currentPackageName: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -48,6 +49,9 @@ class LedOverlayService : Service() {
         }
 
         isPositioningMode = (action == ACTION_POSITION_LED)
+        if (intent?.hasExtra(EXTRA_PACKAGE_NAME) == true) {
+            currentPackageName = intent.getStringExtra(EXTRA_PACKAGE_NAME)
+        }
 
         startAsForeground()
         acquireWakeLock()
@@ -148,7 +152,17 @@ class LedOverlayService : Service() {
             return
         }
 
+        // Per-App color takes precedence, fallback to default_color in app_colors or led_prefs
+        val color = AppColorManager.getColorForPackage(this, currentPackageName)
+
+        // If overlay already displayed, simply refresh the LED color to the new app's color
         if (overlayView != null) {
+            val ledDot = overlayView?.findViewById<View>(R.id.ledDot)
+            val drawable = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+            }
+            ledDot?.background = drawable
             return
         }
 
@@ -187,7 +201,6 @@ class LedOverlayService : Service() {
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val sizeDp = prefs.getInt(KEY_SIZE, 22)
-        val color = prefs.getInt(KEY_COLOR, 0xFF00FF00.toInt())
         val savedPosX = prefs.getFloat(KEY_POS_X, -1f)
         val savedPosY = prefs.getFloat(KEY_POS_Y, -1f)
 
@@ -211,7 +224,7 @@ class LedOverlayService : Service() {
         dotParams.height = sizePx
         ledDot.layoutParams = dotParams
 
-        // Apply dot color
+        // Apply per-app color
         val drawable = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(color)
@@ -374,6 +387,7 @@ class LedOverlayService : Service() {
         const val ACTION_POSITION_LED = "POSITION_LED"
         const val ACTION_START = "com.example.lednotify.ACTION_START"
         const val ACTION_STOP = "com.example.lednotify.ACTION_STOP"
+        const val EXTRA_PACKAGE_NAME = "packageName"
 
         const val PREFS_NAME = "led_prefs"
         const val KEY_SIZE = "size"
@@ -384,9 +398,12 @@ class LedOverlayService : Service() {
         private const val CHANNEL_ID = "led_overlay_channel"
         private const val NOTIFICATION_ID = 1001
 
-        fun start(context: Context) {
+        fun start(context: Context, packageName: String? = null) {
             val intent = Intent(context, LedOverlayService::class.java).apply {
                 action = ACTION_START_LED
+                if (packageName != null) {
+                    putExtra(EXTRA_PACKAGE_NAME, packageName)
+                }
             }
             ContextCompat.startForegroundService(context, intent)
         }

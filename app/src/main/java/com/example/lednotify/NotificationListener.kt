@@ -19,9 +19,10 @@ class NotificationListener : NotificationListenerService() {
         val isOngoing = (sbn.notification.flags and Notification.FLAG_ONGOING_EVENT) != 0
         if (isOngoing) return
 
-        // Start LedOverlayService with action START_LED
+        // Start LedOverlayService with action START_LED and pass packageName
         val intent = Intent(this, LedOverlayService::class.java).apply {
             action = LedOverlayService.ACTION_START_LED
+            putExtra(LedOverlayService.EXTRA_PACKAGE_NAME, sbn.packageName)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
