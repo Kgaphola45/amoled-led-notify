@@ -4,329 +4,256 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.SeekBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import androidx.core.net.toUri
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import com.example.lednotify.ui.theme.LedNotifyTheme
 
 class MainActivity : ComponentActivity() {
+
+    private lateinit var btnOverlayPermission: Button
+    private lateinit var tvOverlayStatus: TextView
+    private lateinit var btnNotificationAccess: Button
+    private lateinit var tvNotificationStatus: TextView
+    private lateinit var tvSizeLabel: TextView
+    private lateinit var seekBarSize: SeekBar
+    private lateinit var previewLedDot: View
+    private lateinit var layoutColors: LinearLayout
+    private lateinit var btnTestLed: Button
+    private lateinit var btnStopLed: Button
+
+    private val colorOptions = listOf(
+        0xFF00FF00.toInt(), // Green
+        0xFFFF0000.toInt(), // Red
+        0xFF0000FF.toInt(), // Blue
+        0xFFFFFF00.toInt(), // Yellow
+        0xFFFF00FF.toInt(), // Magenta
+        0xFFFFFFFF.toInt(), // White
+        0xFFFFA500.toInt()  // Orange
+    )
+
+    private val colorViews = mutableListOf<View>()
+
+    private val postNotificationLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            Toast.makeText(this, "Notification permission granted", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        setContent {
-            LedNotifyTheme {
-                MainScreen()
+        setContentView(R.layout.activity_main)
+
+        bindViews()
+        setupPermissions()
+        setupSizeControl()
+        setupColorPicker()
+        setupActionButtons()
+
+        requestNotificationPermissionIfNeeded()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updatePermissionStatuses()
+    }
+
+    private fun bindViews() {
+        btnOverlayPermission = findViewById(R.id.btnOverlayPermission)
+        tvOverlayStatus = findViewById(R.id.tvOverlayStatus)
+        btnNotificationAccess = findViewById(R.id.btnNotificationAccess)
+        tvNotificationStatus = findViewById(R.id.tvNotificationStatus)
+        tvSizeLabel = findViewById(R.id.tvSizeLabel)
+        seekBarSize = findViewById(R.id.seekBarSize)
+        previewLedDot = findViewById(R.id.previewLedDot)
+        layoutColors = findViewById(R.id.layoutColors)
+        btnTestLed = findViewById(R.id.btnTestLed)
+        btnStopLed = findViewById(R.id.btnStopLed)
+    }
+
+    private fun setupPermissions() {
+        btnOverlayPermission.setOnClickListener {
+            if (Settings.canDrawOverlays(this)) {
+                Toast.makeText(this, "Overlay permission is already granted", Toast.LENGTH_SHORT).show()
+            } else {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
             }
         }
-    }
-}
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun MainScreen() {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    var hasOverlayPermission by remember {
-        mutableStateOf(isOverlayPermissionGranted(context))
-    }
-    var hasNotificationListenerAccess by remember {
-        mutableStateOf(isNotificationListenerEnabled(context))
-    }
-    var hasPostNotificationPermission by remember {
-        mutableStateOf(isPostNotificationPermissionGranted(context))
-    }
-
-    // Refresh permission states whenever the activity returns to foreground
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                hasOverlayPermission = isOverlayPermissionGranted(context)
-                hasNotificationListenerAccess = isNotificationListenerEnabled(context)
-                hasPostNotificationPermission = isPostNotificationPermissionGranted(context)
+        btnNotificationAccess.setOnClickListener {
+            if (isNotificationListenerEnabled()) {
+                Toast.makeText(this, "Notification access is already granted", Toast.LENGTH_SHORT).show()
+            } else {
+                val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                startActivity(intent)
             }
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+
+        updatePermissionStatuses()
     }
 
-    // Android 13+ Notification Runtime Permission Request
-    val postNotificationLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        hasPostNotificationPermission = granted
-        if (granted) {
-            Toast.makeText(context, "Notification permission granted", Toast.LENGTH_SHORT).show()
+    private fun updatePermissionStatuses() {
+        val hasOverlay = Settings.canDrawOverlays(this)
+        tvOverlayStatus.text = if (hasOverlay) {
+            "Overlay Permission: GRANTED"
+        } else {
+            "Overlay Permission: MISSING (Required to show LED dot)"
         }
+        tvOverlayStatus.setTextColor(if (hasOverlay) Color.parseColor("#4CAF50") else Color.parseColor("#FF5252"))
+
+        val hasListener = isNotificationListenerEnabled()
+        tvNotificationStatus.text = if (hasListener) {
+            "Notification Access: GRANTED"
+        } else {
+            "Notification Access: MISSING (Required to detect notifications)"
+        }
+        tvNotificationStatus.setTextColor(if (hasListener) Color.parseColor("#4CAF50") else Color.parseColor("#FF5252"))
     }
 
-    LaunchedEffect(Unit) {
-        if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) && !hasPostNotificationPermission) {
-            postNotificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
+    private fun isNotificationListenerEnabled(): Boolean {
+        val enabledPackages = NotificationManagerCompat.getEnabledListenerPackages(this)
+        return enabledPackages.contains(packageName)
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "AMOLED LED Notify",
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            )
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text(
-                text = "Simulate a notification LED dot on AMOLED displays. Pure black overlay saves battery while keeping the blinking LED visible.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+    private fun setupSizeControl() {
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+        val savedSize = prefs.getInt(LedOverlayService.KEY_SIZE, 22).coerceIn(10, 100)
 
-            // Permission status indicators
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "Permissions Status",
-                        fontWeight = FontWeight.SemiBold,
-                        style = MaterialTheme.typography.titleMedium
-                    )
+        tvSizeLabel.text = "LED Dot Size: ${savedSize}dp"
+        seekBarSize.progress = savedSize - 10 // range 0 to 90 corresponds to 10 to 100 dp
 
-                    PermissionStatusRow(
-                        label = "Overlay Permission",
-                        isGranted = hasOverlayPermission
-                    )
-                    PermissionStatusRow(
-                        label = "Notification Listener",
-                        isGranted = hasNotificationListenerAccess
-                    )
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        PermissionStatusRow(
-                            label = "Post Notifications",
-                            isGranted = hasPostNotificationPermission
-                        )
-                    }
+        updatePreviewDot(savedSize, prefs.getInt(LedOverlayService.KEY_COLOR, 0xFF00FF00.toInt()))
+
+        seekBarSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val currentSize = (progress + 10).coerceIn(10, 100)
+                tvSizeLabel.text = "LED Dot Size: ${currentSize}dp"
+                prefs.edit().putInt(LedOverlayService.KEY_SIZE, currentSize).apply()
+                val currentColor = prefs.getInt(LedOverlayService.KEY_COLOR, 0xFF00FF00.toInt())
+                updatePreviewDot(currentSize, currentColor)
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+    }
+
+    private fun setupColorPicker() {
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+        var currentColor = prefs.getInt(LedOverlayService.KEY_COLOR, 0xFF00FF00.toInt())
+
+        layoutColors.removeAllViews()
+        colorViews.clear()
+
+        val density = resources.displayMetrics.density
+        val circleSizePx = (38 * density).toInt()
+        val marginPx = (6 * density).toInt()
+
+        for (color in colorOptions) {
+            val colorView = View(this).apply {
+                val params = LinearLayout.LayoutParams(circleSizePx, circleSizePx).apply {
+                    setMargins(marginPx, marginPx, marginPx, marginPx)
+                }
+                layoutParams = params
+                background = createColorCircleDrawable(color, color == currentColor)
+                setOnClickListener {
+                    currentColor = color
+                    prefs.edit().putInt(LedOverlayService.KEY_COLOR, color).apply()
+                    refreshColorSelection(currentColor)
+                    val currentSize = prefs.getInt(LedOverlayService.KEY_SIZE, 22)
+                    updatePreviewDot(currentSize, color)
                 }
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Button 1: Allow Overlay Permission
-            Button(
-                onClick = {
-                    if (Settings.canDrawOverlays(context)) {
-                        Toast.makeText(context, "Overlay permission already granted", Toast.LENGTH_SHORT).show()
-                    } else {
-                        val intent = Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            "package:${context.packageName}".toUri()
-                        )
-                        context.startActivity(intent)
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-            ) {
-                Text(
-                    text = "Allow Overlay Permission",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            // Button 2: Allow Notification Access
-            Button(
-                onClick = {
-                    if (isNotificationListenerEnabled(context)) {
-                        Toast.makeText(context, "Notification access already granted", Toast.LENGTH_SHORT).show()
-                    } else {
-                        val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                        context.startActivity(intent)
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-            ) {
-                Text(
-                    text = "Allow Notification Access",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            // Button 3: Test LED
-            Button(
-                onClick = {
-                    if (!Settings.canDrawOverlays(context)) {
-                        Toast.makeText(context, "Please allow Overlay Permission first", Toast.LENGTH_LONG).show()
-                        val intent = Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            "package:${context.packageName}".toUri()
-                        )
-                        context.startActivity(intent)
-                        return@Button
-                    }
-                    if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) && !hasPostNotificationPermission) {
-                        postNotificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                    LedOverlayService.start(context)
-                    Toast.makeText(context, "Starting LED Overlay... Tap screen to dismiss", Toast.LENGTH_SHORT).show()
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF2E7D32)
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-            ) {
-                Text(
-                    text = "Test LED",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-
-            // Button 4: Stop LED
-            OutlinedButton(
-                onClick = {
-                    LedOverlayService.stop(context)
-                    Toast.makeText(context, "LED Overlay stopped", Toast.LENGTH_SHORT).show()
-                },
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-            ) {
-                Text(
-                    text = "Stop LED",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = "When an incoming notification arrives, the screen wakes up with a pure black display and a blinking green LED in the top-right corner. Tap anywhere on the overlay to dismiss it.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline
-            )
+            colorViews.add(colorView)
+            layoutColors.addView(colorView)
         }
     }
-}
 
-@Composable
-fun PermissionStatusRow(label: String, isGranted: Boolean) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Text(
-            text = if (isGranted) "Granted" else "Missing",
-            color = if (isGranted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
-            fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.bodySmall
-        )
+    private fun refreshColorSelection(selectedColor: Int) {
+        for (i in colorOptions.indices) {
+            val color = colorOptions[i]
+            val view = colorViews[i]
+            view.background = createColorCircleDrawable(color, color == selectedColor)
+        }
     }
-}
 
-private fun isOverlayPermissionGranted(context: Context): Boolean {
-    return Settings.canDrawOverlays(context)
-}
+    private fun createColorCircleDrawable(color: Int, isSelected: Boolean): GradientDrawable {
+        val density = resources.displayMetrics.density
+        return GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(color)
+            if (isSelected) {
+                setStroke((3 * density).toInt(), Color.WHITE)
+            } else {
+                setStroke((1 * density).toInt(), Color.parseColor("#444444"))
+            }
+        }
+    }
 
-private fun isNotificationListenerEnabled(context: Context): Boolean {
-    val enabledListeners = NotificationManagerCompat.getEnabledListenerPackages(context)
-    return enabledListeners.contains(context.packageName)
-}
+    private fun updatePreviewDot(sizeDp: Int, color: Int) {
+        val density = resources.displayMetrics.density
+        val sizePx = (sizeDp * density).toInt().coerceAtLeast(10)
+        val params = previewLedDot.layoutParams
+        params.width = sizePx
+        params.height = sizePx
+        previewLedDot.layoutParams = params
 
-private fun isPostNotificationPermissionGranted(context: Context): Boolean {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.POST_NOTIFICATIONS
-        ) == PackageManager.PERMISSION_GRANTED
-    } else {
-        true
+        val drawable = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(color)
+        }
+        previewLedDot.background = drawable
+    }
+
+    private fun setupActionButtons() {
+        btnTestLed.setOnClickListener {
+            if (!Settings.canDrawOverlays(this)) {
+                Toast.makeText(this, "Please allow Overlay Permission first", Toast.LENGTH_LONG).show()
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+                return@setOnClickListener
+            }
+            requestNotificationPermissionIfNeeded()
+            LedOverlayService.start(this)
+            Toast.makeText(this, "LED overlay started! Tap black screen to dismiss.", Toast.LENGTH_SHORT).show()
+        }
+
+        btnStopLed.setOnClickListener {
+            LedOverlayService.stop(this)
+            Toast.makeText(this, "LED overlay stopped", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                postNotificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
     }
 }
