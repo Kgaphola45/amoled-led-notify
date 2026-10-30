@@ -39,6 +39,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var btnCornerTopRight: Button
     private lateinit var btnCornerBottomLeft: Button
     private lateinit var btnCornerBottomRight: Button
+    private lateinit var tvPosXLabel: TextView
+    private lateinit var seekBarPosX: SeekBar
+    private lateinit var tvPosYLabel: TextView
+    private lateinit var seekBarPosY: SeekBar
     private lateinit var btnPositionScreen: Button
     private lateinit var btnTestLed: Button
     private lateinit var btnStopLed: Button
@@ -87,6 +91,7 @@ class MainActivity : ComponentActivity() {
         val size = prefs.getInt(LedOverlayService.KEY_SIZE, 22)
         val color = AppColorManager.getDefaultColor(this)
         updatePreviewDot(size, color)
+        syncPositionSliders()
     }
 
     private fun bindViews() {
@@ -104,6 +109,10 @@ class MainActivity : ComponentActivity() {
         btnCornerTopRight = findViewById(R.id.btnCornerTopRight)
         btnCornerBottomLeft = findViewById(R.id.btnCornerBottomLeft)
         btnCornerBottomRight = findViewById(R.id.btnCornerBottomRight)
+        tvPosXLabel = findViewById(R.id.tvPosXLabel)
+        seekBarPosX = findViewById(R.id.seekBarPosX)
+        tvPosYLabel = findViewById(R.id.tvPosYLabel)
+        seekBarPosY = findViewById(R.id.seekBarPosY)
         btnPositionScreen = findViewById(R.id.btnPositionScreen)
         btnTestLed = findViewById(R.id.btnTestLed)
         btnStopLed = findViewById(R.id.btnStopLed)
@@ -268,6 +277,7 @@ class MainActivity : ComponentActivity() {
 
             val currentColor = AppColorManager.getDefaultColor(this)
             updatePreviewDot(sizeDp, currentColor)
+            syncPositionSliders()
             Toast.makeText(this, "Position set to $name", Toast.LENGTH_SHORT).show()
         }
 
@@ -287,6 +297,44 @@ class MainActivity : ComponentActivity() {
             setCorner("Bottom-Right", Gravity.BOTTOM or Gravity.END)
         }
 
+        // Horizontal Slider (X)
+        seekBarPosX.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    val screenW = resources.displayMetrics.widthPixels.toFloat()
+                    val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 22)
+                    val sizePx = sizeDp * density
+                    val newX = (progress / 100f) * (screenW - sizePx).coerceAtLeast(0f)
+
+                    prefs.edit().putFloat(LedOverlayService.KEY_POS_X, newX).apply()
+                    tvPosXLabel.text = "Horizontal Position (X): $progress%"
+                    updatePreviewDot(sizeDp, AppColorManager.getDefaultColor(this@MainActivity))
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        // Vertical Slider (Y)
+        seekBarPosY.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    val screenH = resources.displayMetrics.heightPixels.toFloat()
+                    val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 22)
+                    val sizePx = sizeDp * density
+                    val newY = (progress / 100f) * (screenH - sizePx).coerceAtLeast(0f)
+
+                    prefs.edit().putFloat(LedOverlayService.KEY_POS_Y, newY).apply()
+                    tvPosYLabel.text = "Vertical Position (Y): $progress%"
+                    updatePreviewDot(sizeDp, AppColorManager.getDefaultColor(this@MainActivity))
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
         btnPositionScreen.setOnClickListener {
             if (!Settings.canDrawOverlays(this)) {
                 Toast.makeText(this, "Please allow Overlay Permission first", Toast.LENGTH_LONG).show()
@@ -299,7 +347,28 @@ class MainActivity : ComponentActivity() {
             }
             requestNotificationPermissionIfNeeded()
             LedOverlayService.startPositioning(this)
-            Toast.makeText(this, "Drag mode active! Drag the dot anywhere on the screen.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Touch anywhere on screen to place the dot!", Toast.LENGTH_SHORT).show()
+        }
+
+        syncPositionSliders()
+    }
+
+    private fun syncPositionSliders() {
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+        val savedPosX = prefs.getFloat(LedOverlayService.KEY_POS_X, -1f)
+        val savedPosY = prefs.getFloat(LedOverlayService.KEY_POS_Y, -1f)
+        val screenW = resources.displayMetrics.widthPixels.toFloat()
+        val screenH = resources.displayMetrics.heightPixels.toFloat()
+
+        if (screenW > 0f && screenH > 0f) {
+            val percentX = if (savedPosX >= 0f) ((savedPosX / screenW) * 100).toInt().coerceIn(0, 100) else 90
+            val percentY = if (savedPosY >= 0f) ((savedPosY / screenH) * 100).toInt().coerceIn(0, 100) else 5
+
+            seekBarPosX.progress = percentX
+            tvPosXLabel.text = "Horizontal Position (X): $percentX%"
+
+            seekBarPosY.progress = percentY
+            tvPosYLabel.text = "Vertical Position (Y): $percentY%"
         }
     }
 
