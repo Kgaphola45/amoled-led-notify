@@ -10,11 +10,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
@@ -35,7 +37,8 @@ class LedOverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
+        val action = intent?.action
+        if (action == ACTION_STOP_LED || action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -63,7 +66,7 @@ class LedOverlayService : Service() {
 
     private fun startAsForeground() {
         val stopIntent = Intent(this, LedOverlayService::class.java).apply {
-            action = ACTION_STOP
+            action = ACTION_STOP_LED
         }
         val stopPendingIntent = PendingIntent.getService(
             this,
@@ -83,7 +86,7 @@ class LedOverlayService : Service() {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.led_circle)
             .setContentTitle("AMOLED LED Notify")
-            .setContentText("Blinking LED notification active")
+            .setContentText("LED notification active. Tap black screen to dismiss.")
             .setContentIntent(contentPendingIntent)
             .addAction(0, "Stop LED", stopPendingIntent)
             .setOngoing(true)
@@ -126,7 +129,7 @@ class LedOverlayService : Service() {
     }
 
     @Suppress("DEPRECATION")
-    @SuppressLint("InflateParams")
+    @SuppressLint("InflateParams", "ClickableViewAccessibility")
     private fun showOverlay() {
         if (!Settings.canDrawOverlays(this)) {
             stopSelf()
@@ -164,16 +167,96 @@ class LedOverlayService : Service() {
         val inflater = LayoutInflater.from(this)
         val view = inflater.inflate(R.layout.overlay_led, null)
 
-        val ledDot = view.findViewById<View>(R.id.led_dot)
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val sizeDp = prefs.getInt(KEY_SIZE, 22)
+        val color = prefs.getInt(KEY_COLOR, 0xFF00FF00.toInt())
+        val savedPosX = prefs.getFloat(KEY_POS_X, -1f)
+        val savedPosY = prefs.getFloat(KEY_POS_Y, -1f)
+
+        val sizePx = (sizeDp * resources.displayMetrics.density).toInt().coerceAtLeast(10)
+
+        val ledDot = view.findViewById<View>(R.id.ledDot)
+
+        // Apply size to dot width/height
+        val dotParams = ledDot.layoutParams
+        dotParams.width = sizePx
+        dotParams.height = sizePx
+        ledDot.layoutParams = dotParams
+
+        // Apply color to GradientDrawable
+        val drawable = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(color)
+        }
+        ledDot.background = drawable
+
+        // Set initial position
+        view.post {
+            if (savedPosX >= 0f && savedPosY >= 0f) {
+                ledDot.x = savedPosX
+                ledDot.y = savedPosY
+            } else {
+                val margin = 24 * resources.displayMetrics.density
+                ledDot.x = (view.width - sizePx - margin).coerceAtLeast(0f)
+                ledDot.y = margin
+            }
+        }
+
+        // Setup blink animation: alpha 1f to 0f, 600ms, INFINITE REVERSE
         animator = ObjectAnimator.ofFloat(ledDot, View.ALPHA, 1f, 0f).apply {
-            duration = 600
+            duration = 600L
             repeatCount = ObjectAnimator.INFINITE
             repeatMode = ObjectAnimator.REVERSE
             start()
         }
 
-        // Tapping anywhere on the overlay should dismiss it and release WakeLock
-        view.setOnClickListener {
+        // Draggable dot: onTouchListener tracks ACTION_DOWN/MOVE/UP, pauses blink while dragging, saves posX/posY on ACTION_UP
+        var dX = 0f
+        var dY = 0f
+        ledDot.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    dX = v.x - event.rawX
+                    dY = v.y - event.rawY
+                    animator?.pause()
+                    v.alpha = 1f
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val newX = event.rawX + dX
+                    val newY = event.rawY + dY
+
+                    val parent = overlayView
+                    val maxX = if (parent != null) (parent.width - v.width).toFloat() else newX
+                    val maxY = if (parent != null) (parent.height - v.height).toFloat() else newY
+
+                    v.x = if (maxX > 0) newX.coerceIn(0f, maxX) else newX
+                    v.y = if (maxY > 0) newY.coerceIn(0f, maxY) else newY
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (animator?.isPaused == true) {
+                        animator?.resume()
+                    }
+                    prefs.edit()
+                        .putFloat(KEY_POS_X, v.x)
+                        .putFloat(KEY_POS_Y, v.y)
+                        .apply()
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    if (animator?.isPaused == true) {
+                        animator?.resume()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+
+        // Tapping overlay background (pure black) stops the service
+        val overlayRoot = view.findViewById<View>(R.id.overlayRoot)
+        overlayRoot.setOnClickListener {
             stopSelf()
         }
 
@@ -220,21 +303,30 @@ class LedOverlayService : Service() {
     }
 
     companion object {
+        const val ACTION_START_LED = "START_LED"
+        const val ACTION_STOP_LED = "STOP_LED"
         const val ACTION_START = "com.example.lednotify.ACTION_START"
         const val ACTION_STOP = "com.example.lednotify.ACTION_STOP"
+
+        const val PREFS_NAME = "led_prefs"
+        const val KEY_SIZE = "size"
+        const val KEY_COLOR = "color"
+        const val KEY_POS_X = "posX"
+        const val KEY_POS_Y = "posY"
+
         private const val CHANNEL_ID = "led_overlay_channel"
         private const val NOTIFICATION_ID = 1001
 
         fun start(context: Context) {
             val intent = Intent(context, LedOverlayService::class.java).apply {
-                action = ACTION_START
+                action = ACTION_START_LED
             }
             ContextCompat.startForegroundService(context, intent)
         }
 
         fun stop(context: Context) {
             val intent = Intent(context, LedOverlayService::class.java).apply {
-                action = ACTION_STOP
+                action = ACTION_STOP_LED
             }
             context.startService(intent)
         }
