@@ -169,9 +169,13 @@ class LedOverlayService : Service() {
             val nextColor = activeAlertColors[cycleIndex]
             val nextSpeed = activeAlertSpeeds.getOrElse(cycleIndex) { ContactColorManager.DEFAULT_BLINK_SPEED_MS }
             val nextName = activeAlertNames.getOrElse(cycleIndex) { "Alert" }
+            val nextPattern = activeAlertPatterns.getOrElse(cycleIndex) {
+                prefs.getString(KEY_ANIMATION_PATTERN, PATTERN_BLINK) ?: PATTERN_BLINK
+            }
 
             applyColor(nextColor)
             applyBlinkSpeed(nextSpeed)
+            startSpecificAnimation(nextPattern, nextSpeed)
             updateForegroundNotification("Pending alerts (${activeAlertColors.size}): $nextName")
 
             cycleHandler.postDelayed(this, CYCLE_INTERVAL_MS)
@@ -204,11 +208,16 @@ class LedOverlayService : Service() {
         instanceRef = WeakReference(this)
         createNotificationChannel()
 
-        // Read initial battery level
+        // Read initial battery level and charging state
         try {
             val batteryStatus = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
             val level = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
             val scale = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+            val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val plugged = batteryStatus?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
+            isPluggedIn = plugged != 0
+            isBatteryCharging = isPluggedIn || status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+            isBatteryFull = status == BatteryManager.BATTERY_STATUS_FULL || (level >= scale && level > 0)
             if (level >= 0 && scale > 0) {
                 currentBatteryPct = (level * 100 / scale.toFloat()).toInt()
             }
@@ -221,6 +230,8 @@ class LedOverlayService : Service() {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_USER_PRESENT)
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
             addAction(Intent.ACTION_BATTERY_CHANGED)
             addAction(Intent.ACTION_BATTERY_LOW)
             addAction(Intent.ACTION_BATTERY_OKAY)
@@ -262,6 +273,7 @@ class LedOverlayService : Service() {
                 activeAlertColors = intent.getIntArrayExtra(EXTRA_ALERT_COLORS) ?: intArrayOf()
                 activeAlertSpeeds = intent.getIntArrayExtra(EXTRA_ALERT_SPEEDS) ?: intArrayOf()
                 activeAlertNames = intent.getStringArrayExtra(EXTRA_ALERT_NAMES) ?: arrayOf()
+                activeAlertPatterns = intent.getStringArrayExtra(EXTRA_ALERT_PATTERNS) ?: arrayOf()
             }
 
             if (intent.hasExtra(EXTRA_PACKAGE_NAME)) {
@@ -305,14 +317,22 @@ class LedOverlayService : Service() {
             cycleIndex = 0
             val initialColor = activeAlertColors[0]
             val initialSpeed = activeAlertSpeeds.getOrElse(0) { ContactColorManager.DEFAULT_BLINK_SPEED_MS }
+            val initialPattern = activeAlertPatterns.getOrElse(0) {
+                prefs.getString(KEY_ANIMATION_PATTERN, PATTERN_BLINK) ?: PATTERN_BLINK
+            }
             applyColor(initialColor)
             applyBlinkSpeed(initialSpeed)
+            startSpecificAnimation(initialPattern, initialSpeed)
             cycleHandler.postDelayed(cycleRunnable, CYCLE_INTERVAL_MS)
         } else if (activeAlertColors.size == 1) {
             val singleColor = activeAlertColors[0]
             val singleSpeed = activeAlertSpeeds.getOrElse(0) { ContactColorManager.DEFAULT_BLINK_SPEED_MS }
+            val singlePattern = activeAlertPatterns.getOrElse(0) {
+                prefs.getString(KEY_ANIMATION_PATTERN, PATTERN_BLINK) ?: PATTERN_BLINK
+            }
             applyColor(singleColor)
             applyBlinkSpeed(singleSpeed)
+            startSpecificAnimation(singlePattern, singleSpeed)
         }
     }
 
@@ -363,17 +383,18 @@ class LedOverlayService : Service() {
             return
         }
 
-        // 4. Low Battery Cutoff check
+        // 4. Low Battery Cutoff check (only if unplugged and low battery warning is NOT active)
         val batteryCutoff = prefs.getInt(KEY_LOW_BATTERY_CUTOFF, 15)
-        if (batteryCutoff > 0 && currentBatteryPct in 0..batteryCutoff) {
+        val lowBatteryWarningEnabled = prefs.getBoolean(KEY_LOW_BATTERY_WARNING, true)
+        if (!isBatteryCharging && batteryCutoff > 0 && currentBatteryPct in 0..batteryCutoff && !lowBatteryWarningEnabled) {
             overlayView?.visibility = View.GONE
             pauseBlinkAnimation()
             return
         }
 
-        // 5. Auto-Off Timer (Timeout) check
+        // 5. Auto-Off Timer (Timeout) check for active alerts
         val timeoutMinutes = prefs.getInt(KEY_TIMEOUT_MINUTES, 15)
-        if (timeoutMinutes > 0) {
+        if (activeAlertColors.isNotEmpty() && timeoutMinutes > 0) {
             val elapsed = System.currentTimeMillis() - notificationStartTimeMs
             if (elapsed >= timeoutMinutes * 60 * 1000L) {
                 overlayView?.visibility = View.GONE
@@ -387,19 +408,62 @@ class LedOverlayService : Service() {
         val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         val isLocked = km.isKeyguardLocked
 
-        if (hideWhileUnlocked) {
+        val shouldBeVisible = if (hideWhileUnlocked) {
             // When device is locked or screen is off -> show LED!
             // When device is unlocked (user present / actively using) -> hide LED!
-            if (!isScreenOn || isLocked) {
-                overlayView?.visibility = View.VISIBLE
-                resumeBlinkAnimation()
-            } else {
-                overlayView?.visibility = View.GONE
-                pauseBlinkAnimation()
-            }
+            !isScreenOn || isLocked
         } else {
+            true
+        }
+
+        if (!shouldBeVisible) {
+            overlayView?.visibility = View.GONE
+            pauseBlinkAnimation()
+            return
+        }
+
+        // 7. Active unread notifications
+        if (activeAlertColors.isNotEmpty() || !currentPackageName.isNullOrBlank()) {
             overlayView?.visibility = View.VISIBLE
             resumeBlinkAnimation()
+            return
+        }
+
+        // 8. Hardware & Battery Trigger check
+        val batteryIndicatorEnabled = prefs.getBoolean(KEY_BATTERY_INDICATOR_ENABLED, true)
+        if (batteryIndicatorEnabled && (isBatteryCharging || (lowBatteryWarningEnabled && currentBatteryPct in 1..15))) {
+            applyBatteryState()
+            overlayView?.visibility = View.VISIBLE
+            resumeBlinkAnimation()
+            return
+        }
+
+        // 9. Otherwise hide overlay
+        overlayView?.visibility = View.GONE
+        pauseBlinkAnimation()
+    }
+
+    private fun applyBatteryState() {
+        if (isBatteryCharging) {
+            if (currentBatteryPct >= 100 || isBatteryFull) {
+                // Solid Green when 100% fully charged
+                val greenColor = 0xFF00FF00.toInt()
+                applyColor(greenColor)
+                startSpecificAnimation(PATTERN_SOLID, 1000)
+                updateForegroundNotification("Battery Full: 100% Charged")
+            } else {
+                // Pulsing Amber/Orange while charging
+                val amberColor = 0xFFFF9100.toInt()
+                applyColor(amberColor)
+                startSpecificAnimation(PATTERN_PULSE, 900)
+                updateForegroundNotification("Battery Charging: $currentBatteryPct%")
+            }
+        } else if (currentBatteryPct in 1..15) {
+            // Flashing Red on critically low battery
+            val redColor = 0xFFFF0000.toInt()
+            applyColor(redColor)
+            startSpecificAnimation(PATTERN_BLINK, 250)
+            updateForegroundNotification("Critically Low Battery: $currentBatteryPct%")
         }
     }
 
@@ -801,12 +865,9 @@ class LedOverlayService : Service() {
         applyCurrentPositionWithShift()
     }
 
-    fun startBlinkAnimation(speedMs: Int = activeSpeedMs) {
+    fun startSpecificAnimation(pattern: String, speedMs: Int = activeSpeedMs) {
         ledDot?.let { dot ->
             dotAnimator?.cancel()
-            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val pattern = prefs.getString(KEY_ANIMATION_PATTERN, PATTERN_BLINK) ?: PATTERN_BLINK
-
             when (pattern) {
                 PATTERN_SOLID -> {
                     dot.alpha = 1f
@@ -848,6 +909,12 @@ class LedOverlayService : Service() {
                 }
             }
         }
+    }
+
+    fun startBlinkAnimation(speedMs: Int = activeSpeedMs) {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val pattern = prefs.getString(KEY_ANIMATION_PATTERN, PATTERN_BLINK) ?: PATTERN_BLINK
+        startSpecificAnimation(pattern, speedMs)
     }
 
     private fun pauseBlinkAnimation() {
