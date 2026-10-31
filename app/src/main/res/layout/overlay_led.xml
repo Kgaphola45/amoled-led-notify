@@ -1,127 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/overlayRoot"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#000000"
-    android:clickable="true"
-    android:focusable="true">
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
 
-    <!-- Draggable touch target container (generous touch area so even 2dp dot is easy to drag) -->
-    <FrameLayout
-        android:id="@+id/ledTouchContainer"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:clickable="true"
-        android:focusable="true">
-
-        <!-- Visual target guide ring while dragging -->
-        <View
-            android:id="@+id/dragGuideRing"
-            android:layout_width="54dp"
-            android:layout_height="54dp"
-            android:layout_gravity="center"
-            android:visibility="gone" />
-
-        <!-- The actual LED dot view -->
-        <View
-            android:id="@+id/ledDot"
-            android:layout_width="22dp"
-            android:layout_height="22dp"
-            android:layout_gravity="center"
-            android:background="@drawable/led_circle" />
-    </FrameLayout>
-
-    <!-- Interactive On-Screen Positioning Controls (visible only in Positioning Mode) -->
-    <LinearLayout
-        android:id="@+id/layoutPositioningControls"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:background="#EE1E1E1E"
-        android:gravity="center_horizontal"
-        android:orientation="vertical"
-        android:padding="16dp"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/tvPositionPrompt"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Touch &amp; drag anywhere on the screen to move the LED dot.\nUse corner buttons for instant corner snapping."
-            android:textAlignment="center"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp" />
-
-        <!-- Quick corner snap buttons right on the overlay -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnOverlayCornerTL"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="1"
-                android:backgroundTint="#333333"
-                android:text="Top-Left"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp" />
-
-            <Button
-                android:id="@+id/btnOverlayCornerTR"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:backgroundTint="#333333"
-                android:text="Top-Right"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnOverlayCornerBL"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="1"
-                android:backgroundTint="#333333"
-                android:text="Bottom-Left"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp" />
-
-            <Button
-                android:id="@+id/btnOverlayCornerBR"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:backgroundTint="#333333"
-                android:text="Bottom-Right"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp" />
-        </LinearLayout>
-
-        <Button
-            android:id="@+id/btnSavePosition"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="12dp"
-            android:backgroundTint="#2E7D32"
-            android:text="Save Position &amp; Done"
-            android:textColor="#FFFFFF"
-            android:textSize="15sp"
-            android:textStyle="bold" />
-    </LinearLayout>
+    <View
+        android:id="@+id/ledDot"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
+        android:background="@drawable/led_circle" />
 
 </FrameLayout>
