@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.LedNotify" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.LedNotify" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:colorBackground">#000000</item>
+        <item name="colorSurface">#121212</item>
+        <item name="colorSurfaceVariant">#1E1E1E</item>
+        <item name="colorSurfaceContainer">#161616</item>
+        <item name="colorPrimary">#00E676</item>
+        <item name="colorOnPrimary">#000000</item>
+        <item name="colorSecondary">#2979FF</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">#000000</item>
+    </style>
 </resources>
