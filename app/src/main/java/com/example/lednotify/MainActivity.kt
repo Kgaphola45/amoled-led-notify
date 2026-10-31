@@ -1106,6 +1106,248 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun setupConvenienceAndUx() {
+        switchMasterEnable.isChecked = LedTileService.isMasterEnabled(this)
+
+        switchMasterEnable.setOnCheckedChangeListener { _, isChecked ->
+            val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().putBoolean(LedTileService.KEY_MASTER_ENABLED, isChecked).apply()
+            LedTileService.requestTileUpdate(this)
+
+            if (!isChecked) {
+                LedOverlayService.stop(this)
+                Toast.makeText(this, "LedNotify disabled", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "LedNotify enabled", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        btnSimulateNotification.setOnClickListener {
+            showSimulateNotificationDialog()
+        }
+
+        btnExportConfig.setOnClickListener {
+            showExportConfigDialog()
+        }
+
+        btnImportConfig.setOnClickListener {
+            showImportConfigDialog()
+        }
+    }
+
+    private fun showSimulateNotificationDialog() {
+        if (!Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "Please allow Overlay Permission first", Toast.LENGTH_LONG).show()
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(intent)
+            return
+        }
+
+        val testPresets = arrayOf(
+            Triple("WhatsApp: Sarah", "com.whatsapp", 0xFF00FF00.toInt()),
+            Triple("Telegram: Project Devs", "org.telegram.messenger", 0xFF00E5FF.toInt()),
+            Triple("Missed Call: Boss", "com.google.android.dialer", 0xFFFF1744.toInt()),
+            Triple("SMS: Bank Alert", "com.google.android.apps.messaging", 0xFFFFD600.toInt())
+        )
+        val names = testPresets.map { it.first }.toTypedArray()
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Simulate Notification")
+            .setItems(names) { _, which ->
+                val (label, pkg, color) = testPresets[which]
+                val senderName = label.substringAfter(": ")
+                startSimulatorCountdown(label, pkg, senderName, color)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun startSimulatorCountdown(label: String, pkg: String, senderName: String, color: Int) {
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("Lock Your Screen Now!")
+            .setMessage("Simulating $label in 5 seconds...\n\nTurn off or lock your screen now to test the AMOLED notification LED!")
+            .setCancelable(false)
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        var timer: CountDownTimer? = null
+        dialog.setOnShowListener {
+            val cancelBtn = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)
+            cancelBtn.setOnClickListener {
+                timer?.cancel()
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+
+        timer = object : CountDownTimer(5000, 1000) {
+            override fun onTick(millisUntilFinished: Long) {
+                val seconds = (millisUntilFinished / 1000) + 1
+                dialog.setMessage("Simulating $label in $seconds seconds...\n\nTurn off or lock your screen now to test the AMOLED notification LED!")
+            }
+
+            override fun onFinish() {
+                try {
+                    dialog.dismiss()
+                } catch (e: Exception) {
+                    // ignore
+                }
+                triggerSimulatedNotification(label, pkg, senderName, color)
+            }
+        }.start()
+    }
+
+    private fun triggerSimulatedNotification(label: String, pkg: String, senderName: String, color: Int) {
+        val channelId = "simulated_alerts"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                "Simulated Test Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Channels for simulated test notifications"
+                setShowBadge(true)
+            }
+            val nm = getSystemService(NotificationManager::class.java)
+            nm?.createNotificationChannel(channel)
+        }
+
+        val notifIntent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            999,
+            notifIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(senderName)
+            .setContentText("This is a simulated message alert to test the AMOLED LED.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        try {
+            NotificationManagerCompat.from(this).notify(888, notification)
+        } catch (e: SecurityException) {
+            // ignore
+        }
+
+        val intent = Intent(this, LedOverlayService::class.java).apply {
+            action = LedOverlayService.ACTION_START_LED
+            putExtra(LedOverlayService.EXTRA_ALERT_COLORS, intArrayOf(color))
+            putExtra(LedOverlayService.EXTRA_ALERT_SPEEDS, intArrayOf(ContactColorManager.DEFAULT_BLINK_SPEED_MS))
+            putExtra(LedOverlayService.EXTRA_ALERT_NAMES, arrayOf(label))
+            putExtra(LedOverlayService.EXTRA_PACKAGE_NAME, pkg)
+            putExtra(LedOverlayService.EXTRA_SENDER_NAME, senderName)
+            putExtra(LedOverlayService.EXTRA_IS_TEST, false)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+        Toast.makeText(this, "Simulated alert sent for $senderName!", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showExportConfigDialog() {
+        val jsonStr = ConfigBackupManager.exportConfigToJson(this)
+
+        val density = resources.displayMetrics.density
+        val padPx = (16 * density).toInt()
+
+        val scrollView = ScrollView(this)
+        val tv = TextView(this).apply {
+            text = jsonStr
+            setPadding(padPx, padPx, padPx, padPx)
+            setTextColor(Color.parseColor("#E0E0E0"))
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            setTextIsSelectable(true)
+        }
+        scrollView.addView(tv)
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Export Configuration")
+            .setView(scrollView)
+            .setPositiveButton("Share") { _, _ ->
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "LedNotify_Config_Backup.json")
+                    putExtra(Intent.EXTRA_TEXT, jsonStr)
+                }
+                startActivity(Intent.createChooser(shareIntent, "Share Backup"))
+            }
+            .setNeutralButton("Copy") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("LedNotify Config", jsonStr)
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(this, "Configuration copied to clipboard!", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun showImportConfigDialog() {
+        val density = resources.displayMetrics.density
+        val padPx = (16 * density).toInt()
+
+        val input = EditText(this).apply {
+            hint = "Paste JSON configuration here..."
+            setHintTextColor(Color.parseColor("#888888"))
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            minLines = 8
+            gravity = Gravity.TOP or Gravity.START
+            setPadding(padPx, padPx, padPx, padPx)
+        }
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Import Configuration")
+            .setMessage("Paste exported JSON configuration below to restore your custom contacts, per-app colors, and LED preferences.")
+            .setView(input)
+            .setPositiveButton("Import") { _, _ ->
+                val text = input.text.toString().trim()
+                if (text.isEmpty()) {
+                    Toast.makeText(this, "No configuration provided", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val result = ConfigBackupManager.importConfigFromJson(this, text)
+                if (result.success) {
+                    Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
+                    val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+                    val size = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
+                    val color = AppColorManager.getDefaultColor(this)
+                    updatePreviewDot(size, color)
+                    syncPositionSliders()
+                    LedOverlayService.updateLiveColor(color)
+                    LedOverlayService.updateLiveSize(size)
+                    LedOverlayService.updateLiveStyle()
+                    LedOverlayService.updateLiveAnimationPattern()
+                    switchMasterEnable.isChecked = LedTileService.isMasterEnabled(this)
+                    switchBurnInProtection.isChecked = prefs.getBoolean(LedOverlayService.KEY_BURN_IN_PROTECTION, true)
+                    switchPocketMode.isChecked = prefs.getBoolean(LedOverlayService.KEY_POCKET_MODE, true)
+                    switchDnd.isChecked = prefs.getBoolean(LedOverlayService.KEY_DND_ENABLED, false)
+                    switchBatteryIndicator.isChecked = prefs.getBoolean(LedOverlayService.KEY_BATTERY_INDICATOR_ENABLED, true)
+                    switchLowBatteryWarning.isChecked = prefs.getBoolean(LedOverlayService.KEY_LOW_BATTERY_WARNING, true)
+                } else {
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle("Import Failed")
+                        .setMessage(result.message)
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun setupActionButtons() {
         btnTestLed.setOnClickListener {
             if (!Settings.canDrawOverlays(this)) {
