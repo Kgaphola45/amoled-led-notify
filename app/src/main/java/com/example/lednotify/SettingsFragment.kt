@@ -124,7 +124,7 @@ class SettingsFragment : Fragment() {
         }
 
         // AOD Mode
-        binding.switchAodMode.isChecked = prefs.getBoolean(LedOverlayService.KEY_AOD_MODE, true)
+        binding.switchAodMode.isChecked = prefs.getBoolean(LedOverlayService.KEY_AOD_MODE, false)
         binding.switchAodMode.setOnCheckedChangeListener { _, isChecked ->
             prefs.edit().putBoolean(LedOverlayService.KEY_AOD_MODE, isChecked).apply()
         }
@@ -162,7 +162,7 @@ class SettingsFragment : Fragment() {
         binding.switchRespectDnd.isChecked = prefs.getBoolean(LedOverlayService.KEY_RESPECT_SYSTEM_DND, true)
         binding.switchBurnInProtection.isChecked = prefs.getBoolean(LedOverlayService.KEY_BURN_IN_PROTECTION, true)
         binding.switchHideWhileUnlocked.isChecked = prefs.getBoolean(LedOverlayService.KEY_HIDE_WHILE_UNLOCKED, true)
-        binding.switchAodMode.isChecked = prefs.getBoolean(LedOverlayService.KEY_AOD_MODE, true)
+        binding.switchAodMode.isChecked = prefs.getBoolean(LedOverlayService.KEY_AOD_MODE, false)
         binding.switchSuppressInApp.isChecked = prefs.getBoolean(LedOverlayService.KEY_SUPPRESS_WHEN_APP_FOREGROUND, true)
         binding.switchPrivacyMode.isChecked = prefs.getBoolean(LedOverlayService.KEY_PRIVACY_MODE, false)
         binding.switchBatteryIndicator.isChecked = prefs.getBoolean(LedOverlayService.KEY_BATTERY_INDICATOR_ENABLED, true)

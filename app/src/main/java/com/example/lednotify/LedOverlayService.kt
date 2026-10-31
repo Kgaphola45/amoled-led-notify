@@ -581,7 +581,7 @@ class LedOverlayService : Service() {
         }
 
         // 8. Mode selection: Screen OFF (AOD black screen) vs Screen ON (floating dot)
-        val aodEnabled = prefs.getBoolean(KEY_AOD_MODE, true)
+        val aodEnabled = prefs.getBoolean(KEY_AOD_MODE, false)
 
         if ((!isScreenOn || isForcedAod) && aodEnabled) {
             // Mode 2: Screen OFF = Black screen + dot (AMOLED saver) + time & battery %
@@ -655,15 +655,16 @@ class LedOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        val aodFlags = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                (if (isForcedAod) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0)
+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             overlayType,
-            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+            aodFlags,
             PixelFormat.TRANSLUCENT
         )
         params.gravity = Gravity.FILL
@@ -1073,10 +1074,6 @@ class LedOverlayService : Service() {
             PixelFormat.TRANSLUCENT
         )
         params.gravity = Gravity.TOP or Gravity.START
-
-        // Force maximum display brightness for crisp solid dot on AMOLED
-        params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
-        params.buttonBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             params.layoutInDisplayCutoutMode =
