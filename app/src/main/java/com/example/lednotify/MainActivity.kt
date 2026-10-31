@@ -59,15 +59,18 @@ class MainActivity : ComponentActivity() {
     private lateinit var switchCycleColors: android.widget.Switch
     private lateinit var switchAutoDismiss: android.widget.Switch
     private lateinit var switchAodMode: android.widget.Switch
+    private lateinit var switchSuppressInApp: android.widget.Switch
     private lateinit var btnPreviewAod: Button
     private lateinit var switchBurnInProtection: android.widget.Switch
     private lateinit var btnTimeoutOption: Button
     private lateinit var btnBatteryCutoffOption: Button
     private lateinit var switchPocketMode: android.widget.Switch
     private lateinit var switchDnd: android.widget.Switch
+    private lateinit var switchRespectSystemDnd: android.widget.Switch
     private lateinit var layoutDndTimes: LinearLayout
     private lateinit var btnDndStartTime: Button
     private lateinit var btnDndEndTime: Button
+    private lateinit var switchPrivacyMode: android.widget.Switch
     private lateinit var btnTestLed: Button
     private lateinit var btnStopLed: Button
 
@@ -134,6 +137,7 @@ class MainActivity : ComponentActivity() {
         setupLifecycleSwitches()
         setupHealthAndBatteryControls()
         setupSystemAndHardwareTriggers()
+        setupPrivacyControls()
         setupConvenienceAndUx()
         setupActionButtons()
 
@@ -188,15 +192,18 @@ class MainActivity : ComponentActivity() {
         switchCycleColors = findViewById(R.id.switchCycleColors)
         switchAutoDismiss = findViewById(R.id.switchAutoDismiss)
         switchAodMode = findViewById(R.id.switchAodMode)
+        switchSuppressInApp = findViewById(R.id.switchSuppressInApp)
         btnPreviewAod = findViewById(R.id.btnPreviewAod)
         switchBurnInProtection = findViewById(R.id.switchBurnInProtection)
         btnTimeoutOption = findViewById(R.id.btnTimeoutOption)
         btnBatteryCutoffOption = findViewById(R.id.btnBatteryCutoffOption)
         switchPocketMode = findViewById(R.id.switchPocketMode)
         switchDnd = findViewById(R.id.switchDnd)
+        switchRespectSystemDnd = findViewById(R.id.switchRespectSystemDnd)
         layoutDndTimes = findViewById(R.id.layoutDndTimes)
         btnDndStartTime = findViewById(R.id.btnDndStartTime)
         btnDndEndTime = findViewById(R.id.btnDndEndTime)
+        switchPrivacyMode = findViewById(R.id.switchPrivacyMode)
         btnTestLed = findViewById(R.id.btnTestLed)
         btnStopLed = findViewById(R.id.btnStopLed)
 
@@ -917,6 +924,19 @@ class MainActivity : ComponentActivity() {
             prefs.edit().putBoolean(LedOverlayService.KEY_AOD_MODE, isChecked).apply()
         }
 
+        switchSuppressInApp.isChecked = prefs.getBoolean(LedOverlayService.KEY_SUPPRESS_WHEN_APP_FOREGROUND, true)
+        switchSuppressInApp.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(LedOverlayService.KEY_SUPPRESS_WHEN_APP_FOREGROUND, isChecked).apply()
+            if (isChecked && !ForegroundAppDetector.hasUsageStatsPermission(this)) {
+                Toast.makeText(this, "Please grant Usage Access to detect open apps", Toast.LENGTH_LONG).show()
+                try {
+                    startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                } catch (e: Exception) {
+                    // ignore
+                }
+            }
+        }
+
         btnPreviewAod.setOnClickListener {
             if (!Settings.canDrawOverlays(this)) {
                 Toast.makeText(this, "Please allow Overlay Permission first", Toast.LENGTH_SHORT).show()
@@ -943,7 +963,7 @@ class MainActivity : ComponentActivity() {
             prefs.edit().putBoolean(LedOverlayService.KEY_BURN_IN_PROTECTION, isChecked).apply()
         }
 
-        // 2. Timeout Option Dialog
+        // 2. Timeout Option Dialog (5, 10, 15, 30, 60 min, Never)
         fun updateTimeoutButtonText(minutes: Int) {
             btnTimeoutOption.text = if (minutes == 0) "Never" else if (minutes == 60) "1 hour" else "$minutes min"
         }
@@ -951,8 +971,8 @@ class MainActivity : ComponentActivity() {
         updateTimeoutButtonText(currentTimeout)
 
         btnTimeoutOption.setOnClickListener {
-            val timeoutLabels = arrayOf("5 minutes", "15 minutes (Default)", "30 minutes", "1 hour", "Never (Always On)")
-            val timeoutValues = intArrayOf(5, 15, 30, 60, 0)
+            val timeoutLabels = arrayOf("5 minutes", "10 minutes", "15 minutes (Default)", "30 minutes", "1 hour", "Never (Always On)")
+            val timeoutValues = intArrayOf(5, 10, 15, 30, 60, 0)
             val selectedIndex = timeoutValues.indexOf(prefs.getInt(LedOverlayService.KEY_TIMEOUT_MINUTES, 15)).coerceAtLeast(0)
 
             android.app.AlertDialog.Builder(this)
@@ -1046,6 +1066,12 @@ class MainActivity : ComponentActivity() {
                 updateDndTimeButtons()
             }, endH, endM, false).show()
         }
+
+        // 6. Respect System DND
+        switchRespectSystemDnd.isChecked = prefs.getBoolean(LedOverlayService.KEY_RESPECT_SYSTEM_DND, true)
+        switchRespectSystemDnd.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(LedOverlayService.KEY_RESPECT_SYSTEM_DND, isChecked).apply()
+        }
     }
 
     private fun setupSystemAndHardwareTriggers() {
@@ -1128,6 +1154,14 @@ class MainActivity : ComponentActivity() {
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
+        }
+    }
+
+    private fun setupPrivacyControls() {
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+        switchPrivacyMode.isChecked = prefs.getBoolean(LedOverlayService.KEY_PRIVACY_MODE, false)
+        switchPrivacyMode.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(LedOverlayService.KEY_PRIVACY_MODE, isChecked).apply()
         }
     }
 
@@ -1362,6 +1396,9 @@ class MainActivity : ComponentActivity() {
                     switchBatteryIndicator.isChecked = prefs.getBoolean(LedOverlayService.KEY_BATTERY_INDICATOR_ENABLED, true)
                     switchLowBatteryWarning.isChecked = prefs.getBoolean(LedOverlayService.KEY_LOW_BATTERY_WARNING, true)
                     switchAodMode.isChecked = prefs.getBoolean(LedOverlayService.KEY_AOD_MODE, true)
+                    switchSuppressInApp.isChecked = prefs.getBoolean(LedOverlayService.KEY_SUPPRESS_WHEN_APP_FOREGROUND, true)
+                    switchRespectSystemDnd.isChecked = prefs.getBoolean(LedOverlayService.KEY_RESPECT_SYSTEM_DND, true)
+                    switchPrivacyMode.isChecked = prefs.getBoolean(LedOverlayService.KEY_PRIVACY_MODE, false)
                 } else {
                     android.app.AlertDialog.Builder(this)
                         .setTitle("Import Failed")
