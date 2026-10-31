@@ -91,7 +91,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         updatePermissionStatuses()
         val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
-        val size = prefs.getInt(LedOverlayService.KEY_SIZE, 22)
+        val size = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
         val color = AppColorManager.getDefaultColor(this)
         updatePreviewDot(size, color)
         syncPositionSliders()
@@ -186,17 +186,17 @@ class MainActivity : ComponentActivity() {
 
     private fun setupSizeControl() {
         val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
-        val savedSize = prefs.getInt(LedOverlayService.KEY_SIZE, 22).coerceIn(10, 100)
+        val savedSize = prefs.getInt(LedOverlayService.KEY_SIZE, 2).coerceIn(2, 100)
 
         tvSizeLabel.text = "LED Dot Size: ${savedSize}dp"
-        seekBarSize.max = 90 // range 0 to 90 corresponds to 10 to 100 dp
-        seekBarSize.progress = (savedSize - 10).coerceAtLeast(0)
+        seekBarSize.max = 98 // range 0 to 98 corresponds to 2 to 100 dp
+        seekBarSize.progress = (savedSize - 2).coerceAtLeast(0)
 
         updatePreviewDot(savedSize, AppColorManager.getDefaultColor(this))
 
         seekBarSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val currentSize = (progress + 10).coerceIn(10, 100)
+                val currentSize = (progress + 2).coerceIn(2, 100)
                 tvSizeLabel.text = "LED Dot Size: ${currentSize}dp"
                 prefs.edit().putInt(LedOverlayService.KEY_SIZE, currentSize).apply()
                 val currentColor = AppColorManager.getDefaultColor(this@MainActivity)
@@ -231,7 +231,7 @@ class MainActivity : ComponentActivity() {
                     prefs.edit().putInt(LedOverlayService.KEY_COLOR, color).apply()
                     AppColorManager.setDefaultColor(this@MainActivity, color)
                     refreshColorSelection(currentColor)
-                    val currentSize = prefs.getInt(LedOverlayService.KEY_SIZE, 22)
+                    val currentSize = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
                     updatePreviewDot(currentSize, color)
                 }
             }
@@ -268,7 +268,7 @@ class MainActivity : ComponentActivity() {
         fun setCorner(name: String, cornerGravity: Int) {
             val screenW = resources.displayMetrics.widthPixels.toFloat()
             val screenH = resources.displayMetrics.heightPixels.toFloat()
-            val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 22)
+            val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
             val sizePx = sizeDp * density
             val margin = 8f * density
 
@@ -313,7 +313,7 @@ class MainActivity : ComponentActivity() {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
                     val screenW = resources.displayMetrics.widthPixels.toFloat()
-                    val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 22)
+                    val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
                     val sizePx = sizeDp * density
                     val newX = (progress / 100f) * (screenW - sizePx).coerceAtLeast(0f)
 
@@ -332,7 +332,7 @@ class MainActivity : ComponentActivity() {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
                     val screenH = resources.displayMetrics.heightPixels.toFloat()
-                    val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 22)
+                    val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
                     val sizePx = sizeDp * density
                     val newY = (progress / 100f) * (screenH - sizePx).coerceAtLeast(0f)
 
