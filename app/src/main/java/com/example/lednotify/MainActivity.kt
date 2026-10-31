@@ -58,6 +58,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var switchHideWhileUnlocked: android.widget.Switch
     private lateinit var switchCycleColors: android.widget.Switch
     private lateinit var switchAutoDismiss: android.widget.Switch
+    private lateinit var switchAodMode: android.widget.Switch
+    private lateinit var btnPreviewAod: Button
     private lateinit var switchBurnInProtection: android.widget.Switch
     private lateinit var btnTimeoutOption: Button
     private lateinit var btnBatteryCutoffOption: Button
@@ -185,6 +187,8 @@ class MainActivity : ComponentActivity() {
         switchHideWhileUnlocked = findViewById(R.id.switchHideWhileUnlocked)
         switchCycleColors = findViewById(R.id.switchCycleColors)
         switchAutoDismiss = findViewById(R.id.switchAutoDismiss)
+        switchAodMode = findViewById(R.id.switchAodMode)
+        btnPreviewAod = findViewById(R.id.btnPreviewAod)
         switchBurnInProtection = findViewById(R.id.switchBurnInProtection)
         btnTimeoutOption = findViewById(R.id.btnTimeoutOption)
         btnBatteryCutoffOption = findViewById(R.id.btnBatteryCutoffOption)
@@ -895,6 +899,7 @@ class MainActivity : ComponentActivity() {
         switchHideWhileUnlocked.isChecked = prefs.getBoolean(LedOverlayService.KEY_HIDE_WHILE_UNLOCKED, true)
         switchCycleColors.isChecked = prefs.getBoolean(LedOverlayService.KEY_CYCLE_COLORS, true)
         switchAutoDismiss.isChecked = prefs.getBoolean(LedOverlayService.KEY_AUTO_DISMISS, true)
+        switchAodMode.isChecked = prefs.getBoolean(LedOverlayService.KEY_AOD_MODE, true)
 
         switchHideWhileUnlocked.setOnCheckedChangeListener { _, isChecked ->
             prefs.edit().putBoolean(LedOverlayService.KEY_HIDE_WHILE_UNLOCKED, isChecked).apply()
@@ -906,6 +911,26 @@ class MainActivity : ComponentActivity() {
 
         switchAutoDismiss.setOnCheckedChangeListener { _, isChecked ->
             prefs.edit().putBoolean(LedOverlayService.KEY_AUTO_DISMISS, isChecked).apply()
+        }
+
+        switchAodMode.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(LedOverlayService.KEY_AOD_MODE, isChecked).apply()
+        }
+
+        btnPreviewAod.setOnClickListener {
+            if (!Settings.canDrawOverlays(this)) {
+                Toast.makeText(this, "Please allow Overlay Permission first", Toast.LENGTH_SHORT).show()
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+                return@setOnClickListener
+            }
+            Toast.makeText(this, "Starting AOD Preview...\nDouble-tap anywhere on screen to exit!", Toast.LENGTH_LONG).show()
+            btnPreviewAod.postDelayed({
+                LedOverlayService.previewAod(this)
+            }, 800)
         }
     }
 
