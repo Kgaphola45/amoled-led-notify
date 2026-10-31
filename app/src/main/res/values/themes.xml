@@ -13,5 +13,15 @@
         <item name="colorOnSecondary">#FFFFFF</item>
         <item name="android:statusBarColor">#000000</item>
         <item name="android:navigationBarColor">#000000</item>
+        <item name="bottomNavigationStyle">@style/CustomBottomNav</item>
+    </style>
+
+    <style name="CustomBottomNav" parent="Widget.Material3.BottomNavigationView">
+        <item name="materialThemeOverlay">@style/ThemeOverlay.BottomNav</item>
+    </style>
+
+    <style name="ThemeOverlay.BottomNav" parent="">
+        <item name="colorSecondaryContainer">#1B382B</item>
+        <item name="colorOnSecondaryContainer">#00E676</item>
     </style>
 </resources>
