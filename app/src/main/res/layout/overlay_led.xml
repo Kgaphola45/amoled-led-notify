@@ -2,12 +2,32 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/overlayRoot"
     android:layout_width="wrap_content"
-    android:layout_height="wrap_content">
+    android:layout_height="wrap_content"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    android:padding="20dp">
 
+    <!-- Subtle Drag feedback ring shown while user drags dot -->
+    <View
+        android:id="@+id/dragRing"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="center"
+        android:visibility="gone" />
+
+    <!-- Superbright Luminous Glow Bloom -->
+    <View
+        android:id="@+id/ledGlow"
+        android:layout_width="8dp"
+        android:layout_height="8dp"
+        android:layout_gravity="center" />
+
+    <!-- Main LED Diode Dot -->
     <View
         android:id="@+id/ledDot"
         android:layout_width="2dp"
         android:layout_height="2dp"
+        android:layout_gravity="center"
         android:background="@drawable/led_circle" />
 
 </FrameLayout>

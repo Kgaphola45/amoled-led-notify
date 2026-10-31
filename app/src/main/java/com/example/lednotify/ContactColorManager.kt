@@ -1,9 +1,13 @@
 package com.example.lednotify
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Bundle
+import android.provider.ContactsContract
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -16,7 +20,9 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.cardview.widget.CardView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
@@ -53,11 +59,21 @@ object ContactColorManager {
             return prefs.getInt(cleanName, 0)
         }
 
-        // Case-insensitive fallback match
         val allEntries = prefs.all
+
+        // Case-insensitive exact match
         for ((key, value) in allEntries) {
             if (key != KEY_INITIALIZED && value is Int && key.equals(cleanName, ignoreCase = true)) {
                 return value
+            }
+        }
+
+        // Substring / partial match fallback (e.g. "John" matches "John Doe" or vice versa)
+        for ((key, value) in allEntries) {
+            if (key != KEY_INITIALIZED && value is Int) {
+                if (cleanName.contains(key, ignoreCase = true) || key.contains(cleanName, ignoreCase = true)) {
+                    return value
+                }
             }
         }
 
@@ -100,6 +116,48 @@ class ContactColorActivity : ComponentActivity() {
 
     private var selectedColor: Int = 0xFFFF69B4.toInt() // Pink default for contacts
     private val colorViews = mutableListOf<View>()
+
+    private val pickContactLauncher = registerForActivityResult(
+        ActivityResultContracts.PickContact()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val cursor = contentResolver.query(
+                    uri,
+                    arrayOf(ContactsContract.Contacts.DISPLAY_NAME),
+                    null,
+                    null,
+                    null
+                )
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val nameIndex = it.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
+                        if (nameIndex != -1) {
+                            val contactName = it.getString(nameIndex)
+                            if (!contactName.isNullOrBlank()) {
+                                etContactName.setText(contactName)
+                                Toast.makeText(this, "Selected contact: $contactName", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(this, "Could not read contact name", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private val requestContactsPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            pickContactLauncher.launch(null)
+        } else {
+            // PickContact can still succeed even if general permission is not granted
+            pickContactLauncher.launch(null)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -206,13 +264,20 @@ class ContactColorActivity : ComponentActivity() {
             paint.isFakeBoldText = true
         }
 
-        etContactName = EditText(this).apply {
+        // Contact input row with EditText and "Pick Contact" button
+        val inputRow = LinearLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 (48 * density).toInt()
             ).apply {
                 topMargin = (12 * density).toInt()
             }
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        etContactName = EditText(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
             setBackgroundColor(Color.parseColor("#2C2C2C"))
             hint = "Contact name (e.g. Mom, John)"
             setHintTextColor(Color.parseColor("#777777"))
@@ -221,6 +286,30 @@ class ContactColorActivity : ComponentActivity() {
             setPadding((14 * density).toInt(), 0, (14 * density).toInt(), 0)
         }
 
+        val btnPickContact = Button(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+            ).apply {
+                marginStart = (8 * density).toInt()
+            }
+            setBackgroundColor(Color.parseColor("#00897B"))
+            text = "Pick Contact"
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            paint.isFakeBoldText = true
+            setOnClickListener {
+                if (ContextCompat.checkSelfPermission(this@ContactColorActivity, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+                    pickContactLauncher.launch(null)
+                } else {
+                    requestContactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                }
+            }
+        }
+
+        inputRow.addView(etContactName)
+        inputRow.addView(btnPickContact)
+
         val tvHint = TextView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -228,7 +317,7 @@ class ContactColorActivity : ComponentActivity() {
             ).apply {
                 topMargin = (6 * density).toInt()
             }
-            text = "Type name exactly as WhatsApp shows it. For unknown numbers, type the number like +2773..."
+            text = "Tap 'Pick Contact' to choose from your phone contacts, or type the exact name/number manually."
             setTextColor(Color.parseColor("#AAAAAA"))
             textSize = 12f
         }
@@ -276,7 +365,7 @@ class ContactColorActivity : ComponentActivity() {
         }
 
         cardContent.addView(tvCardHeader)
-        cardContent.addView(etContactName)
+        cardContent.addView(inputRow)
         cardContent.addView(tvHint)
         cardContent.addView(tvColorLabel)
         cardContent.addView(horizontalScroll)
