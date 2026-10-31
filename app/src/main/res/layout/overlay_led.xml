@@ -6,8 +6,8 @@
 
     <View
         android:id="@+id/ledDot"
-        android:layout_width="22dp"
-        android:layout_height="22dp"
+        android:layout_width="2dp"
+        android:layout_height="2dp"
         android:background="@drawable/led_circle" />
 
 </FrameLayout>
