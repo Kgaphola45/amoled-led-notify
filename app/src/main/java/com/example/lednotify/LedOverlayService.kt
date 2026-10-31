@@ -16,6 +16,11 @@ import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -30,6 +35,7 @@ import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import java.lang.ref.WeakReference
+import java.util.Calendar
 
 class LedOverlayService : Service() {
 
@@ -55,19 +61,75 @@ class LedOverlayService : Service() {
     private var isScreenOn = true
     private var isReceiverRegistered = false
 
+    // Proximity / Pocket mode sensor
+    private var sensorManager: SensorManager? = null
+    private var proximitySensor: Sensor? = null
+    private var isProximityCovered = false
+
+    // Battery monitoring
+    private var currentBatteryPct = 100
+
+    // Auto-off timer
+    private var notificationStartTimeMs: Long = System.currentTimeMillis()
+    private val timeoutHandler = Handler(Looper.getMainLooper())
+
+    // Burn-in protection (Pixel shift)
+    private val pixelShiftOffsets = arrayOf(
+        Pair(0, 0),
+        Pair(2, 2),
+        Pair(-2, 2),
+        Pair(2, -2),
+        Pair(-2, -2),
+        Pair(0, 3),
+        Pair(3, 0),
+        Pair(0, -3),
+        Pair(-3, 0)
+    )
+    private var currentShiftIndex = 0
+    private var currentShiftX = 0
+    private var currentShiftY = 0
+    private val pixelShiftHandler = Handler(Looper.getMainLooper())
+
+    private val proximityListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent?) {
+            if (event == null || proximitySensor == null) return
+            val distance = event.values[0]
+            val maxRange = proximitySensor!!.maximumRange
+            val threshold = minOf(maxRange, 5f)
+            val covered = distance < threshold
+            if (isProximityCovered != covered) {
+                isProximityCovered = covered
+                evaluateLedVisibilityState()
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
     private val screenStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     isScreenOn = false
-                    updateVisibilityForScreenState()
+                    evaluateLedVisibilityState()
                 }
                 Intent.ACTION_SCREEN_ON -> {
                     isScreenOn = true
-                    updateVisibilityForScreenState()
+                    evaluateLedVisibilityState()
                 }
                 Intent.ACTION_USER_PRESENT -> {
-                    updateVisibilityForScreenState()
+                    evaluateLedVisibilityState()
+                }
+                Intent.ACTION_BATTERY_CHANGED -> {
+                    val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                    val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                    if (level >= 0 && scale > 0) {
+                        currentBatteryPct = (level * 100 / scale.toFloat()).toInt()
+                        evaluateLedVisibilityState()
+                    }
+                }
+                Intent.ACTION_BATTERY_LOW, Intent.ACTION_BATTERY_OKAY -> {
+                    evaluateLedVisibilityState()
                 }
             }
         }
@@ -95,6 +157,25 @@ class LedOverlayService : Service() {
         }
     }
 
+    private val pixelShiftRunnable = object : Runnable {
+        override fun run() {
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val burnInEnabled = prefs.getBoolean(KEY_BURN_IN_PROTECTION, true)
+            if (burnInEnabled && overlayView != null && layoutParams != null) {
+                currentShiftIndex = (currentShiftIndex + 1) % pixelShiftOffsets.size
+                val (dx, dy) = pixelShiftOffsets[currentShiftIndex]
+                currentShiftX = dx
+                currentShiftY = dy
+                applyCurrentPositionWithShift()
+            }
+            pixelShiftHandler.postDelayed(this, PIXEL_SHIFT_INTERVAL_MS)
+        }
+    }
+
+    private val timeoutRunnable = Runnable {
+        evaluateLedVisibilityState()
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -102,13 +183,39 @@ class LedOverlayService : Service() {
         instanceRef = WeakReference(this)
         createNotificationChannel()
 
+        // Read initial battery level
+        try {
+            val batteryStatus = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val level = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+            if (level >= 0 && scale > 0) {
+                currentBatteryPct = (level * 100 / scale.toFloat()).toInt()
+            }
+        } catch (e: Exception) {
+            // ignore
+        }
+
+        // Register screen & battery broadcast receiver
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_USER_PRESENT)
+            addAction(Intent.ACTION_BATTERY_CHANGED)
+            addAction(Intent.ACTION_BATTERY_LOW)
+            addAction(Intent.ACTION_BATTERY_OKAY)
         }
         registerReceiver(screenStateReceiver, filter)
         isReceiverRegistered = true
+
+        // Register proximity sensor for pocket mode
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        proximitySensor = sensorManager?.getDefaultSensor(Sensor.TYPE_PROXIMITY)
+        if (proximitySensor != null) {
+            sensorManager?.registerListener(proximityListener, proximitySensor, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+
+        // Start pixel shift timer
+        pixelShiftHandler.postDelayed(pixelShiftRunnable, PIXEL_SHIFT_INTERVAL_MS)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -124,6 +231,10 @@ class LedOverlayService : Service() {
         } else if (intent?.hasExtra(EXTRA_PACKAGE_NAME) == true || intent?.hasExtra(EXTRA_ALERT_COLORS) == true) {
             isManualMode = false
         }
+
+        // Reset notification timer for newly arriving notification
+        notificationStartTimeMs = System.currentTimeMillis()
+        scheduleTimeout()
 
         if (intent != null) {
             if (intent.hasExtra(EXTRA_ALERT_COLORS)) {
@@ -148,9 +259,19 @@ class LedOverlayService : Service() {
         startAsForeground()
         showOverlay()
         setupColorCycling()
-        updateVisibilityForScreenState()
+        evaluateLedVisibilityState()
 
         return START_NOT_STICKY
+    }
+
+    private fun scheduleTimeout() {
+        timeoutHandler.removeCallbacksAndMessages(null)
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val timeoutMinutes = prefs.getInt(KEY_TIMEOUT_MINUTES, 15)
+        if (timeoutMinutes > 0 && !isManualMode) {
+            val delayMs = timeoutMinutes * 60 * 1000L
+            timeoutHandler.postDelayed(timeoutRunnable, delayMs)
+        }
     }
 
     private fun setupColorCycling() {
@@ -174,18 +295,76 @@ class LedOverlayService : Service() {
         }
     }
 
-    private fun updateVisibilityForScreenState() {
+    private fun isWithinDndHours(): Boolean {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val hideWhileUnlocked = prefs.getBoolean(KEY_HIDE_WHILE_UNLOCKED, true)
-        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-        val isLocked = km.isKeyguardLocked
+        if (!prefs.getBoolean(KEY_DND_ENABLED, false)) return false
 
-        // If manual test or drag positioning mode from MainActivity, keep visible for user setup
+        val startH = prefs.getInt(KEY_DND_START_HOUR, 23)
+        val startM = prefs.getInt(KEY_DND_START_MINUTE, 0)
+        val endH = prefs.getInt(KEY_DND_END_HOUR, 7)
+        val endM = prefs.getInt(KEY_DND_END_MINUTE, 0)
+
+        val cal = Calendar.getInstance()
+        val nowMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+        val startMinutes = startH * 60 + startM
+        val endMinutes = endH * 60 + endM
+
+        return if (startMinutes <= endMinutes) {
+            nowMinutes in startMinutes until endMinutes
+        } else {
+            // Overnight schedule (e.g. 11:00 PM to 07:00 AM)
+            nowMinutes >= startMinutes || nowMinutes < endMinutes
+        }
+    }
+
+    private fun evaluateLedVisibilityState() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+        // 1. Manual test / positioning from MainActivity takes precedence
         if (isManualMode) {
             overlayView?.visibility = View.VISIBLE
             resumeBlinkAnimation()
             return
         }
+
+        // 2. Quiet Hours / DND check
+        if (isWithinDndHours()) {
+            overlayView?.visibility = View.GONE
+            pauseBlinkAnimation()
+            return
+        }
+
+        // 3. Pocket Mode (Proximity Sensor) check
+        val pocketModeEnabled = prefs.getBoolean(KEY_POCKET_MODE, true)
+        if (pocketModeEnabled && isProximityCovered) {
+            overlayView?.visibility = View.GONE
+            pauseBlinkAnimation()
+            return
+        }
+
+        // 4. Low Battery Cutoff check
+        val batteryCutoff = prefs.getInt(KEY_LOW_BATTERY_CUTOFF, 15)
+        if (batteryCutoff > 0 && currentBatteryPct in 0..batteryCutoff) {
+            overlayView?.visibility = View.GONE
+            pauseBlinkAnimation()
+            return
+        }
+
+        // 5. Auto-Off Timer (Timeout) check
+        val timeoutMinutes = prefs.getInt(KEY_TIMEOUT_MINUTES, 15)
+        if (timeoutMinutes > 0) {
+            val elapsed = System.currentTimeMillis() - notificationStartTimeMs
+            if (elapsed >= timeoutMinutes * 60 * 1000L) {
+                overlayView?.visibility = View.GONE
+                pauseBlinkAnimation()
+                return
+            }
+        }
+
+        // 6. Phone in use (unlocked) check
+        val hideWhileUnlocked = prefs.getBoolean(KEY_HIDE_WHILE_UNLOCKED, true)
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        val isLocked = km.isKeyguardLocked
 
         if (hideWhileUnlocked) {
             // When device is locked or screen is off -> show LED!
@@ -335,7 +514,7 @@ class LedOverlayService : Service() {
             applyColor(activeColor)
             applyBlinkSpeed(activeSpeedMs)
             applySize(sizeDp)
-            updateVisibilityForScreenState()
+            evaluateLedVisibilityState()
             return
         }
 
@@ -491,10 +670,48 @@ class LedOverlayService : Service() {
 
         try {
             windowManager?.addView(overlayView, layoutParams)
-            updateVisibilityForScreenState()
+            evaluateLedVisibilityState()
         } catch (e: Exception) {
             e.printStackTrace()
             stopSelf()
+        }
+    }
+
+    private fun applyCurrentPositionWithShift() {
+        val lp = layoutParams ?: return
+        val density = resources.displayMetrics.density
+        val ledPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val sizeDp = ledPrefs.getInt(KEY_SIZE, 2).coerceIn(2, 100)
+        val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
+        val boxPx = maxOf((48 * density).toInt(), sizePx)
+        val dotOffsetPx = (boxPx - sizePx) / 2f
+        val (realScreenW, realScreenH) = getRealScreenSize(this)
+
+        val savedPosX = ledPrefs.getFloat(KEY_POS_X, -1f)
+        val savedPosY = ledPrefs.getFloat(KEY_POS_Y, -1f)
+
+        val baseDotX = if (savedPosX >= 0f) {
+            savedPosX.coerceIn(0f, (realScreenW - sizePx).coerceAtLeast(0).toFloat())
+        } else {
+            (realScreenW - sizePx).coerceAtLeast(0).toFloat()
+        }
+
+        val baseDotY = if (savedPosY >= 0f) {
+            savedPosY.coerceIn(0f, (realScreenH - sizePx).coerceAtLeast(0).toFloat())
+        } else {
+            0f
+        }
+
+        val shiftedDotX = (baseDotX + currentShiftX).coerceIn(0f, (realScreenW - sizePx).coerceAtLeast(0).toFloat())
+        val shiftedDotY = (baseDotY + currentShiftY).coerceIn(0f, (realScreenH - sizePx).coerceAtLeast(0).toFloat())
+
+        lp.x = (shiftedDotX - dotOffsetPx).toInt()
+        lp.y = (shiftedDotY - dotOffsetPx).toInt()
+
+        try {
+            windowManager?.updateViewLayout(overlayView, lp)
+        } catch (e: Exception) {
+            // ignore
         }
     }
 
@@ -502,7 +719,6 @@ class LedOverlayService : Service() {
         val density = resources.displayMetrics.density
         val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
         val boxPx = maxOf((48 * density).toInt(), sizePx)
-        val dotOffsetPx = (boxPx - sizePx) / 2f
 
         ledDot?.let { dot ->
             val lp = dot.layoutParams
@@ -524,24 +740,7 @@ class LedOverlayService : Service() {
         if (overlayView != null && lp != null) {
             lp.width = boxPx
             lp.height = boxPx
-
-            val ledPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val savedPosX = ledPrefs.getFloat(KEY_POS_X, -1f)
-            val savedPosY = ledPrefs.getFloat(KEY_POS_Y, -1f)
-            val (realScreenW, realScreenH) = getRealScreenSize(this)
-
-            if (savedPosX >= 0f && savedPosY >= 0f) {
-                val dotX = savedPosX.coerceIn(0f, (realScreenW - sizePx).coerceAtLeast(0).toFloat())
-                val dotY = savedPosY.coerceIn(0f, (realScreenH - sizePx).coerceAtLeast(0).toFloat())
-                lp.x = (dotX - dotOffsetPx).toInt()
-                lp.y = (dotY - dotOffsetPx).toInt()
-            }
-
-            try {
-                windowManager?.updateViewLayout(overlayView, lp)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            applyCurrentPositionWithShift()
         }
     }
 
@@ -562,21 +761,12 @@ class LedOverlayService : Service() {
     }
 
     fun applyPosition(dotX: Float, dotY: Float) {
-        val lp = layoutParams ?: return
-        val density = resources.displayMetrics.density
         val ledPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val sizeDp = ledPrefs.getInt(KEY_SIZE, 2).coerceIn(2, 100)
-        val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
-        val boxPx = maxOf((48 * density).toInt(), sizePx)
-        val dotOffsetPx = (boxPx - sizePx) / 2f
-
-        lp.x = (dotX - dotOffsetPx).toInt()
-        lp.y = (dotY - dotOffsetPx).toInt()
-        try {
-            windowManager?.updateViewLayout(overlayView, lp)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        ledPrefs.edit()
+            .putFloat(KEY_POS_X, dotX)
+            .putFloat(KEY_POS_Y, dotY)
+            .apply()
+        applyCurrentPositionWithShift()
     }
 
     private fun startBlinkAnimation(speedMs: Int = activeSpeedMs) {
@@ -631,7 +821,10 @@ class LedOverlayService : Service() {
             }
             isReceiverRegistered = false
         }
+        sensorManager?.unregisterListener(proximityListener)
         cycleHandler.removeCallbacksAndMessages(null)
+        pixelShiftHandler.removeCallbacksAndMessages(null)
+        timeoutHandler.removeCallbacksAndMessages(null)
         isManualMode = false
         removeOverlay()
         super.onDestroy()
@@ -657,12 +850,24 @@ class LedOverlayService : Service() {
         const val KEY_LATEST_COLOR = "latest_color"
         const val KEY_LATEST_SPEED = "latest_speed"
 
-        // New lifecycle & screen behavior settings
+        // Screen & lifecycle behavior settings
         const val KEY_HIDE_WHILE_UNLOCKED = "hide_while_unlocked"
         const val KEY_CYCLE_COLORS = "cycle_colors"
         const val KEY_AUTO_DISMISS = "auto_dismiss"
 
+        // AMOLED Health & Battery settings
+        const val KEY_BURN_IN_PROTECTION = "burn_in_protection"
+        const val KEY_TIMEOUT_MINUTES = "timeout_minutes"
+        const val KEY_LOW_BATTERY_CUTOFF = "low_battery_cutoff"
+        const val KEY_POCKET_MODE = "pocket_mode"
+        const val KEY_DND_ENABLED = "dnd_enabled"
+        const val KEY_DND_START_HOUR = "dnd_start_hour"
+        const val KEY_DND_START_MINUTE = "dnd_start_minute"
+        const val KEY_DND_END_HOUR = "dnd_end_hour"
+        const val KEY_DND_END_MINUTE = "dnd_end_minute"
+
         const val CYCLE_INTERVAL_MS = 2500L
+        const val PIXEL_SHIFT_INTERVAL_MS = 60000L
 
         private const val CHANNEL_ID = "led_overlay_channel"
         private const val NOTIFICATION_ID = 1001

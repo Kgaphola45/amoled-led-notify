@@ -48,6 +48,14 @@ class MainActivity : ComponentActivity() {
     private lateinit var switchHideWhileUnlocked: android.widget.Switch
     private lateinit var switchCycleColors: android.widget.Switch
     private lateinit var switchAutoDismiss: android.widget.Switch
+    private lateinit var switchBurnInProtection: android.widget.Switch
+    private lateinit var btnTimeoutOption: Button
+    private lateinit var btnBatteryCutoffOption: Button
+    private lateinit var switchPocketMode: android.widget.Switch
+    private lateinit var switchDnd: android.widget.Switch
+    private lateinit var layoutDndTimes: LinearLayout
+    private lateinit var btnDndStartTime: Button
+    private lateinit var btnDndEndTime: Button
     private lateinit var btnTestLed: Button
     private lateinit var btnStopLed: Button
 
@@ -86,6 +94,7 @@ class MainActivity : ComponentActivity() {
         setupColorPicker()
         setupPositionControls()
         setupLifecycleSwitches()
+        setupHealthAndBatteryControls()
         setupActionButtons()
 
         requestNotificationPermissionIfNeeded()
@@ -137,6 +146,14 @@ class MainActivity : ComponentActivity() {
         switchHideWhileUnlocked = findViewById(R.id.switchHideWhileUnlocked)
         switchCycleColors = findViewById(R.id.switchCycleColors)
         switchAutoDismiss = findViewById(R.id.switchAutoDismiss)
+        switchBurnInProtection = findViewById(R.id.switchBurnInProtection)
+        btnTimeoutOption = findViewById(R.id.btnTimeoutOption)
+        btnBatteryCutoffOption = findViewById(R.id.btnBatteryCutoffOption)
+        switchPocketMode = findViewById(R.id.switchPocketMode)
+        switchDnd = findViewById(R.id.switchDnd)
+        layoutDndTimes = findViewById(R.id.layoutDndTimes)
+        btnDndStartTime = findViewById(R.id.btnDndStartTime)
+        btnDndEndTime = findViewById(R.id.btnDndEndTime)
         btnTestLed = findViewById(R.id.btnTestLed)
         btnStopLed = findViewById(R.id.btnStopLed)
     }
@@ -492,6 +509,120 @@ class MainActivity : ComponentActivity() {
 
         switchAutoDismiss.setOnCheckedChangeListener { _, isChecked ->
             prefs.edit().putBoolean(LedOverlayService.KEY_AUTO_DISMISS, isChecked).apply()
+        }
+    }
+
+    private fun setupHealthAndBatteryControls() {
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+
+        // 1. Burn-in Protection
+        switchBurnInProtection.isChecked = prefs.getBoolean(LedOverlayService.KEY_BURN_IN_PROTECTION, true)
+        switchBurnInProtection.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(LedOverlayService.KEY_BURN_IN_PROTECTION, isChecked).apply()
+        }
+
+        // 2. Timeout Option Dialog
+        fun updateTimeoutButtonText(minutes: Int) {
+            btnTimeoutOption.text = if (minutes == 0) "Never" else if (minutes == 60) "1 hour" else "$minutes min"
+        }
+        val currentTimeout = prefs.getInt(LedOverlayService.KEY_TIMEOUT_MINUTES, 15)
+        updateTimeoutButtonText(currentTimeout)
+
+        btnTimeoutOption.setOnClickListener {
+            val timeoutLabels = arrayOf("5 minutes", "15 minutes (Default)", "30 minutes", "1 hour", "Never (Always On)")
+            val timeoutValues = intArrayOf(5, 15, 30, 60, 0)
+            val selectedIndex = timeoutValues.indexOf(prefs.getInt(LedOverlayService.KEY_TIMEOUT_MINUTES, 15)).coerceAtLeast(0)
+
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Auto-Off Timeout")
+                .setSingleChoiceItems(timeoutLabels, selectedIndex) { dialog, which ->
+                    val chosen = timeoutValues[which]
+                    prefs.edit().putInt(LedOverlayService.KEY_TIMEOUT_MINUTES, chosen).apply()
+                    updateTimeoutButtonText(chosen)
+                    dialog.dismiss()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        // 3. Low Battery Cutoff Dialog
+        fun updateBatteryButtonText(cutoff: Int) {
+            btnBatteryCutoffOption.text = if (cutoff == 0) "Disabled" else "Below $cutoff%"
+        }
+        val currentCutoff = prefs.getInt(LedOverlayService.KEY_LOW_BATTERY_CUTOFF, 15)
+        updateBatteryButtonText(currentCutoff)
+
+        btnBatteryCutoffOption.setOnClickListener {
+            val batteryLabels = arrayOf("Disabled", "Below 10%", "Below 15% (Default)", "Below 20%")
+            val batteryValues = intArrayOf(0, 10, 15, 20)
+            val selectedIndex = batteryValues.indexOf(prefs.getInt(LedOverlayService.KEY_LOW_BATTERY_CUTOFF, 15)).coerceAtLeast(0)
+
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Low Battery Cutoff")
+                .setSingleChoiceItems(batteryLabels, selectedIndex) { dialog, which ->
+                    val chosen = batteryValues[which]
+                    prefs.edit().putInt(LedOverlayService.KEY_LOW_BATTERY_CUTOFF, chosen).apply()
+                    updateBatteryButtonText(chosen)
+                    dialog.dismiss()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        // 4. Pocket Mode
+        switchPocketMode.isChecked = prefs.getBoolean(LedOverlayService.KEY_POCKET_MODE, true)
+        switchPocketMode.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(LedOverlayService.KEY_POCKET_MODE, isChecked).apply()
+        }
+
+        // 5. Quiet Hours / DND Schedule
+        val dndEnabled = prefs.getBoolean(LedOverlayService.KEY_DND_ENABLED, false)
+        switchDnd.isChecked = dndEnabled
+        layoutDndTimes.visibility = if (dndEnabled) View.VISIBLE else View.GONE
+
+        switchDnd.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(LedOverlayService.KEY_DND_ENABLED, isChecked).apply()
+            layoutDndTimes.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+
+        fun formatTime12H(hour: Int, minute: Int): String {
+            val amPm = if (hour < 12) "AM" else "PM"
+            val h12 = if (hour == 0) 12 else if (hour > 12) hour - 12 else hour
+            return String.format(java.util.Locale.US, "%02d:%02d %s", h12, minute, amPm)
+        }
+
+        fun updateDndTimeButtons() {
+            val startH = prefs.getInt(LedOverlayService.KEY_DND_START_HOUR, 23)
+            val startM = prefs.getInt(LedOverlayService.KEY_DND_START_MINUTE, 0)
+            val endH = prefs.getInt(LedOverlayService.KEY_DND_END_HOUR, 7)
+            val endM = prefs.getInt(LedOverlayService.KEY_DND_END_MINUTE, 0)
+            btnDndStartTime.text = formatTime12H(startH, startM)
+            btnDndEndTime.text = formatTime12H(endH, endM)
+        }
+        updateDndTimeButtons()
+
+        btnDndStartTime.setOnClickListener {
+            val startH = prefs.getInt(LedOverlayService.KEY_DND_START_HOUR, 23)
+            val startM = prefs.getInt(LedOverlayService.KEY_DND_START_MINUTE, 0)
+            android.app.TimePickerDialog(this, { _, hour, minute ->
+                prefs.edit()
+                    .putInt(LedOverlayService.KEY_DND_START_HOUR, hour)
+                    .putInt(LedOverlayService.KEY_DND_START_MINUTE, minute)
+                    .apply()
+                updateDndTimeButtons()
+            }, startH, startM, false).show()
+        }
+
+        btnDndEndTime.setOnClickListener {
+            val endH = prefs.getInt(LedOverlayService.KEY_DND_END_HOUR, 7)
+            val endM = prefs.getInt(LedOverlayService.KEY_DND_END_MINUTE, 0)
+            android.app.TimePickerDialog(this, { _, hour, minute ->
+                prefs.edit()
+                    .putInt(LedOverlayService.KEY_DND_END_HOUR, hour)
+                    .putInt(LedOverlayService.KEY_DND_END_MINUTE, minute)
+                    .apply()
+                updateDndTimeButtons()
+            }, endH, endM, false).show()
         }
     }
 
