@@ -336,6 +336,12 @@ class LedOverlayService : Service() {
             isManualMode = false
         }
 
+        if (intent?.getBooleanExtra(EXTRA_FORCE_AOD, false) == true) {
+            isForcedAod = true
+            isScreenOn = false
+            wakeScreenBrieflyForAod()
+        }
+
         // Reset notification timer for newly arriving notification
         notificationStartTimeMs = System.currentTimeMillis()
         scheduleTimeout()
