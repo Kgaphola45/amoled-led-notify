@@ -4,16 +4,19 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.view.LayoutInflater
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.cardview.widget.CardView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
@@ -88,7 +91,6 @@ object ContactColorManager {
 
 class ContactColorActivity : ComponentActivity() {
 
-    private lateinit var btnBack: ImageButton
     private lateinit var etContactName: EditText
     private lateinit var layoutContactColors: LinearLayout
     private lateinit var btnSaveContact: Button
@@ -101,18 +103,230 @@ class ContactColorActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_contact_color)
 
         ContactColorManager.initializeDefaultsIfNeeded(this)
 
-        btnBack = findViewById(R.id.btnBack)
-        etContactName = findViewById(R.id.etContactName)
-        layoutContactColors = findViewById(R.id.layoutContactColors)
-        btnSaveContact = findViewById(R.id.btnSaveContact)
-        tvEmptyContacts = findViewById(R.id.tvEmptyContacts)
-        rvContactColors = findViewById(R.id.rvContactColors)
+        val density = resources.displayMetrics.density
 
-        btnBack.setOnClickListener { finish() }
+        // Root container
+        val rootLayout = LinearLayout(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#121212"))
+        }
+
+        // Top Toolbar
+        val topBar = LinearLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.parseColor("#1E1E1E"))
+            setPadding((16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt())
+        }
+
+        val btnBack = ImageButton(this).apply {
+            layoutParams = LinearLayout.LayoutParams((40 * density).toInt(), (40 * density).toInt())
+            setBackgroundColor(Color.TRANSPARENT)
+            setImageResource(android.R.drawable.ic_menu_revert)
+            setColorFilter(Color.WHITE)
+            contentDescription = "Back"
+            setOnClickListener { finish() }
+        }
+
+        val headerTextLayout = LinearLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = (12 * density).toInt()
+            }
+            orientation = LinearLayout.VERTICAL
+        }
+
+        val tvTitle = TextView(this).apply {
+            text = "WhatsApp Contact Colors"
+            setTextColor(Color.WHITE)
+            textSize = 18f
+            paint.isFakeBoldText = true
+        }
+
+        val tvSubtitle = TextView(this).apply {
+            text = "Set custom LED colors for WhatsApp contacts"
+            setTextColor(Color.parseColor("#AAAAAA"))
+            textSize = 12f
+        }
+
+        headerTextLayout.addView(tvTitle)
+        headerTextLayout.addView(tvSubtitle)
+        topBar.addView(btnBack)
+        topBar.addView(headerTextLayout)
+        rootLayout.addView(topBar)
+
+        // ScrollView Content
+        val scrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+            )
+            isFillViewport = true
+        }
+
+        val contentLayout = LinearLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            orientation = LinearLayout.VERTICAL
+            setPadding((16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt(), (24 * density).toInt())
+        }
+
+        // Add/Update Contact Card
+        val addCard = CardView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setCardBackgroundColor(Color.parseColor("#1E1E1E"))
+            radius = 12 * density
+            cardElevation = 2 * density
+        }
+
+        val cardContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt())
+        }
+
+        val tvCardHeader = TextView(this).apply {
+            text = "Add or Update Contact"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            paint.isFakeBoldText = true
+        }
+
+        etContactName = EditText(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (48 * density).toInt()
+            ).apply {
+                topMargin = (12 * density).toInt()
+            }
+            setBackgroundColor(Color.parseColor("#2C2C2C"))
+            hint = "Contact name (e.g. Mom, John)"
+            setHintTextColor(Color.parseColor("#777777"))
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            setPadding((14 * density).toInt(), 0, (14 * density).toInt(), 0)
+        }
+
+        val tvHint = TextView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (6 * density).toInt()
+            }
+            text = "Type name exactly as WhatsApp shows it. For unknown numbers, type the number like +2773..."
+            setTextColor(Color.parseColor("#AAAAAA"))
+            textSize = 12f
+        }
+
+        val tvColorLabel = TextView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (14 * density).toInt()
+            }
+            text = "Choose LED Color:"
+            setTextColor(Color.parseColor("#CCCCCC"))
+            textSize = 14f
+            paint.isFakeBoldText = true
+        }
+
+        val horizontalScroll = HorizontalScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (8 * density).toInt()
+            }
+            isHorizontalScrollBarEnabled = false
+        }
+
+        layoutContactColors = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        horizontalScroll.addView(layoutContactColors)
+
+        btnSaveContact = Button(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (50 * density).toInt()
+            ).apply {
+                topMargin = (16 * density).toInt()
+            }
+            setBackgroundColor(Color.parseColor("#2E7D32"))
+            text = "Save Contact Color"
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            paint.isFakeBoldText = true
+        }
+
+        cardContent.addView(tvCardHeader)
+        cardContent.addView(etContactName)
+        cardContent.addView(tvHint)
+        cardContent.addView(tvColorLabel)
+        cardContent.addView(horizontalScroll)
+        cardContent.addView(btnSaveContact)
+        addCard.addView(cardContent)
+        contentLayout.addView(addCard)
+
+        // Section Title: Saved Contact Colors
+        val tvSavedHeader = TextView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (20 * density).toInt()
+                bottomMargin = (8 * density).toInt()
+            }
+            text = "Saved Contact Colors"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            paint.isFakeBoldText = true
+        }
+        contentLayout.addView(tvSavedHeader)
+
+        tvEmptyContacts = TextView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (16 * density).toInt()
+            }
+            gravity = Gravity.CENTER
+            text = "No contact colors saved yet.\nAdd Mom, Boss, or any contact above!"
+            setTextColor(Color.parseColor("#777777"))
+            textSize = 14f
+            visibility = View.GONE
+        }
+        contentLayout.addView(tvEmptyContacts)
+
+        rvContactColors = RecyclerView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            isNestedScrollingEnabled = false
+        }
+        contentLayout.addView(rvContactColors)
+
+        scrollView.addView(contentLayout)
+        rootLayout.addView(scrollView)
+        setContentView(rootLayout)
 
         setupColorPalette()
         setupRecyclerView()
@@ -226,8 +440,57 @@ class ContactColorsAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ContactViewHolder {
-        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_contact_color, parent, false)
-        return ContactViewHolder(view)
+        val density = parent.context.resources.displayMetrics.density
+
+        val card = CardView(parent.context).apply {
+            layoutParams = ViewGroup.MarginLayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, (6 * density).toInt(), 0, (6 * density).toInt())
+            }
+            setCardBackgroundColor(Color.parseColor("#1E1E1E"))
+            radius = 12 * density
+            cardElevation = 2 * density
+        }
+
+        val row = LinearLayout(parent.context).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding((14 * density).toInt(), (14 * density).toInt(), (14 * density).toInt(), (14 * density).toInt())
+        }
+
+        val colorDot = View(parent.context).apply {
+            layoutParams = LinearLayout.LayoutParams((34 * density).toInt(), (34 * density).toInt())
+        }
+
+        val nameText = TextView(parent.context).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = (14 * density).toInt()
+            }
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            paint.isFakeBoldText = true
+        }
+
+        val deleteBtn = ImageButton(parent.context).apply {
+            layoutParams = LinearLayout.LayoutParams((40 * density).toInt(), (40 * density).toInt())
+            setBackgroundColor(Color.TRANSPARENT)
+            setImageResource(android.R.drawable.ic_menu_delete)
+            setColorFilter(Color.parseColor("#FF5252"))
+            contentDescription = "Delete Contact"
+        }
+
+        row.addView(colorDot)
+        row.addView(nameText)
+        row.addView(deleteBtn)
+        card.addView(row)
+
+        return ContactViewHolder(card, colorDot, nameText, deleteBtn)
     }
 
     override fun onBindViewHolder(holder: ContactViewHolder, position: Int) {
@@ -237,17 +500,20 @@ class ContactColorsAdapter(
 
     override fun getItemCount(): Int = items.size
 
-    inner class ContactViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        private val viewContactColor: View = itemView.findViewById(R.id.viewContactColor)
-        private val tvContactName: TextView = itemView.findViewById(R.id.tvContactName)
-        private val btnDeleteContact: ImageButton = itemView.findViewById(R.id.btnDeleteContact)
+    inner class ContactViewHolder(
+        itemView: View,
+        private val viewContactColor: View,
+        private val tvContactName: TextView,
+        private val btnDeleteContact: ImageButton
+    ) : RecyclerView.ViewHolder(itemView) {
 
         fun bind(item: ContactColorItem) {
             tvContactName.text = item.contactName
-            viewContactColor.background = GradientDrawable().apply {
+            val drawable = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(item.color)
             }
+            viewContactColor.background = drawable
 
             btnDeleteContact.setOnClickListener {
                 onDeleteClick(item)
