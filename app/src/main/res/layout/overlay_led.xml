@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/overlayRoot"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
+    android:layout_width="48dp"
+    android:layout_height="48dp"
     android:clipChildren="false"
     android:clipToPadding="false"
-    android:padding="20dp">
+    android:fitsSystemWindows="false">
 
-    <!-- Subtle Drag feedback ring shown while user drags dot -->
+    <!-- Subtle Drag feedback ring shown while user touches/drags dot -->
     <View
         android:id="@+id/dragRing"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
         android:layout_gravity="center"
-        android:visibility="gone" />
+        android:visibility="invisible" />
 
     <!-- Pure Solid LED Dot (No glow, crisp solid color) -->
     <View

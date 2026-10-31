@@ -280,19 +280,17 @@ class MainActivity : ComponentActivity() {
         val density = resources.displayMetrics.density
 
         fun setCorner(name: String, cornerGravity: Int) {
-            val screenW = resources.displayMetrics.widthPixels.toFloat()
-            val screenH = resources.displayMetrics.heightPixels.toFloat()
+            val (screenW, screenH) = LedOverlayService.getRealScreenSize(this).let { (w, h) -> Pair(w.toFloat(), h.toFloat()) }
             val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
-            val sizePx = sizeDp * density
-            val margin = 8f * density
+            val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
 
             val posX = when (cornerGravity) {
-                Gravity.TOP or Gravity.START, Gravity.BOTTOM or Gravity.START -> margin
-                else -> (screenW - sizePx - margin).coerceAtLeast(0f)
+                Gravity.TOP or Gravity.START, Gravity.BOTTOM or Gravity.START -> 0f
+                else -> (screenW - sizePx).coerceAtLeast(0f)
             }
             val posY = when (cornerGravity) {
-                Gravity.TOP or Gravity.START, Gravity.TOP or Gravity.END -> margin
-                else -> (screenH - sizePx - margin).coerceAtLeast(0f)
+                Gravity.TOP or Gravity.START, Gravity.TOP or Gravity.END -> 0f
+                else -> (screenH - sizePx).coerceAtLeast(0f)
             }
 
             prefs.edit()
@@ -304,7 +302,7 @@ class MainActivity : ComponentActivity() {
             updatePreviewDot(sizeDp, currentColor)
             syncPositionSliders()
             LedOverlayService.updateLivePosition(posX, posY)
-            Toast.makeText(this, "Position set to $name", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Position set to $name edge", Toast.LENGTH_SHORT).show()
         }
 
         btnCornerTopLeft.setOnClickListener {
@@ -327,10 +325,11 @@ class MainActivity : ComponentActivity() {
         seekBarPosX.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
-                    val screenW = resources.displayMetrics.widthPixels.toFloat()
+                    val (screenW, _) = LedOverlayService.getRealScreenSize(this@MainActivity).let { (w, h) -> Pair(w.toFloat(), h.toFloat()) }
                     val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
-                    val sizePx = sizeDp * density
-                    val newX = (progress / 100f) * (screenW - sizePx).coerceAtLeast(0f)
+                    val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
+                    val maxX = (screenW - sizePx).coerceAtLeast(0f)
+                    val newX = (progress / 100f) * maxX
 
                     prefs.edit().putFloat(LedOverlayService.KEY_POS_X, newX).apply()
                     tvPosXLabel.text = "Horizontal Position (X): $progress%"
@@ -349,10 +348,11 @@ class MainActivity : ComponentActivity() {
         seekBarPosY.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
-                    val screenH = resources.displayMetrics.heightPixels.toFloat()
+                    val (_, screenH) = LedOverlayService.getRealScreenSize(this@MainActivity).let { (w, h) -> Pair(w.toFloat(), h.toFloat()) }
                     val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
-                    val sizePx = sizeDp * density
-                    val newY = (progress / 100f) * (screenH - sizePx).coerceAtLeast(0f)
+                    val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
+                    val maxY = (screenH - sizePx).coerceAtLeast(0f)
+                    val newY = (progress / 100f) * maxY
 
                     prefs.edit().putFloat(LedOverlayService.KEY_POS_Y, newY).apply()
                     tvPosYLabel.text = "Vertical Position (Y): $progress%"
@@ -389,40 +389,45 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
         val savedPosX = prefs.getFloat(LedOverlayService.KEY_POS_X, -1f)
         val savedPosY = prefs.getFloat(LedOverlayService.KEY_POS_Y, -1f)
-        val screenW = resources.displayMetrics.widthPixels.toFloat()
-        val screenH = resources.displayMetrics.heightPixels.toFloat()
+        val (screenW, screenH) = LedOverlayService.getRealScreenSize(this).let { (w, h) -> Pair(w.toFloat(), h.toFloat()) }
+        val density = resources.displayMetrics.density
+        val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
+        val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
 
-        if (screenW > 0f && screenH > 0f) {
-            val percentX = if (savedPosX >= 0f) ((savedPosX / screenW) * 100).toInt().coerceIn(0, 100) else 90
-            val percentY = if (savedPosY >= 0f) ((savedPosY / screenH) * 100).toInt().coerceIn(0, 100) else 5
+        val maxX = (screenW - sizePx).coerceAtLeast(1f)
+        val maxY = (screenH - sizePx).coerceAtLeast(1f)
 
-            seekBarPosX.progress = percentX
-            tvPosXLabel.text = "Horizontal Position (X): $percentX%"
+        val percentX = if (savedPosX >= 0f) ((savedPosX / maxX) * 100).toInt().coerceIn(0, 100) else 100
+        val percentY = if (savedPosY >= 0f) ((savedPosY / maxY) * 100).toInt().coerceIn(0, 100) else 0
 
-            seekBarPosY.progress = percentY
-            tvPosYLabel.text = "Vertical Position (Y): $percentY%"
-        }
+        seekBarPosX.progress = percentX
+        tvPosXLabel.text = "Horizontal Position (X): $percentX%"
+
+        seekBarPosY.progress = percentY
+        tvPosYLabel.text = "Vertical Position (Y): $percentY%"
     }
 
     private fun syncPositionSlidersFromCoords(posX: Float, posY: Float) {
-        val screenW = resources.displayMetrics.widthPixels.toFloat()
-        val screenH = resources.displayMetrics.heightPixels.toFloat()
+        val (screenW, screenH) = LedOverlayService.getRealScreenSize(this).let { (w, h) -> Pair(w.toFloat(), h.toFloat()) }
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+        val density = resources.displayMetrics.density
+        val sizeDp = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
+        val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
 
-        if (screenW > 0f && screenH > 0f) {
-            val percentX = ((posX / screenW) * 100).toInt().coerceIn(0, 100)
-            val percentY = ((posY / screenH) * 100).toInt().coerceIn(0, 100)
+        val maxX = (screenW - sizePx).coerceAtLeast(1f)
+        val maxY = (screenH - sizePx).coerceAtLeast(1f)
 
-            seekBarPosX.progress = percentX
-            tvPosXLabel.text = "Horizontal Position (X): $percentX%"
+        val percentX = ((posX / maxX) * 100).toInt().coerceIn(0, 100)
+        val percentY = ((posY / maxY) * 100).toInt().coerceIn(0, 100)
 
-            seekBarPosY.progress = percentY
-            tvPosYLabel.text = "Vertical Position (Y): $percentY%"
+        seekBarPosX.progress = percentX
+        tvPosXLabel.text = "Horizontal Position (X): $percentX%"
 
-            val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
-            val size = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
-            val color = AppColorManager.getDefaultColor(this)
-            updatePreviewDot(size, color)
-        }
+        seekBarPosY.progress = percentY
+        tvPosYLabel.text = "Vertical Position (Y): $percentY%"
+
+        val color = AppColorManager.getDefaultColor(this)
+        updatePreviewDot(sizeDp, color)
     }
 
     private fun updatePreviewDot(sizeDp: Int, color: Int) {
@@ -439,18 +444,19 @@ class MainActivity : ComponentActivity() {
         framePreviewContainer.post {
             val previewW = framePreviewContainer.width.toFloat()
             val previewH = framePreviewContainer.height.toFloat()
-            val screenW = resources.displayMetrics.widthPixels.toFloat()
-            val screenH = resources.displayMetrics.heightPixels.toFloat()
+            val (screenW, screenH) = LedOverlayService.getRealScreenSize(this).let { (w, h) -> Pair(w.toFloat(), h.toFloat()) }
 
             if (savedPosX >= 0f && savedPosY >= 0f && screenW > 0f && screenH > 0f) {
-                val ratioX = (savedPosX / screenW).coerceIn(0f, 1f)
-                val ratioY = (savedPosY / screenH).coerceIn(0f, 1f)
+                val maxDotX = (screenW - sizePx).coerceAtLeast(1f)
+                val maxDotY = (screenH - sizePx).coerceAtLeast(1f)
+                val ratioX = (savedPosX / maxDotX).coerceIn(0f, 1f)
+                val ratioY = (savedPosY / maxDotY).coerceIn(0f, 1f)
                 params.gravity = Gravity.NO_GRAVITY
                 previewLedDot.x = ratioX * (previewW - sizePx)
                 previewLedDot.y = ratioY * (previewH - sizePx)
             } else {
                 params.gravity = Gravity.TOP or Gravity.END
-                params.setMargins(0, (12 * density).toInt(), (12 * density).toInt(), 0)
+                params.setMargins(0, 0, 0, 0)
             }
             previewLedDot.layoutParams = params
         }
