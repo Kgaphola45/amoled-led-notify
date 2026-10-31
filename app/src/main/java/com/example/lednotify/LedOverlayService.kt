@@ -1354,6 +1354,7 @@ class LedOverlayService : Service() {
         const val KEY_HIDE_WHILE_UNLOCKED = "hide_while_unlocked"
         const val KEY_CYCLE_COLORS = "cycle_colors"
         const val KEY_AUTO_DISMISS = "auto_dismiss"
+        const val KEY_SUPPRESS_WHEN_APP_FOREGROUND = "suppress_when_app_foreground"
 
         // AMOLED Health & Battery settings
         const val KEY_BURN_IN_PROTECTION = "burn_in_protection"
@@ -1361,10 +1362,14 @@ class LedOverlayService : Service() {
         const val KEY_LOW_BATTERY_CUTOFF = "low_battery_cutoff"
         const val KEY_POCKET_MODE = "pocket_mode"
         const val KEY_DND_ENABLED = "dnd_enabled"
+        const val KEY_RESPECT_SYSTEM_DND = "respect_system_dnd"
         const val KEY_DND_START_HOUR = "dnd_start_hour"
         const val KEY_DND_START_MINUTE = "dnd_start_minute"
         const val KEY_DND_END_HOUR = "dnd_end_hour"
         const val KEY_DND_END_MINUTE = "dnd_end_minute"
+
+        // Privacy settings
+        const val KEY_PRIVACY_MODE = "privacy_mode"
 
         // Visual styles & animations
         const val KEY_VISUAL_STYLE = "visual_style"
@@ -1378,6 +1383,7 @@ class LedOverlayService : Service() {
         const val PATTERN_SOLID = "solid"
 
         // Hardware & system triggers
+        const val EXTRA_ALERT_PACKAGES = "alert_packages"
         const val EXTRA_ALERT_PATTERNS = "alert_patterns"
         const val KEY_BATTERY_INDICATOR_ENABLED = "battery_indicator_enabled"
         const val KEY_LOW_BATTERY_WARNING = "low_battery_warning"
