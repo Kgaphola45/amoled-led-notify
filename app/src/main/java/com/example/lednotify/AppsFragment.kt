@@ -303,39 +303,33 @@ class AppsFragment : Fragment() {
         private val onToggle: (AppInfoItem, Boolean) -> Unit
     ) : RecyclerView.Adapter<AppsAdapter.AppViewHolder>() {
 
-        inner class AppViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-            val ivAppIcon: ImageView = view.findViewById(R.id.ivAppIcon)
-            val tvAppName: TextView = view.findViewById(R.id.tvAppName)
-            val tvPackageName: TextView = view.findViewById(R.id.tvPackageName)
-            val viewAppColorDot: View = view.findViewById(R.id.viewAppColorDot)
-            val switchAppEnabled: MaterialSwitch = view.findViewById(R.id.switchAppEnabled)
-            val layoutAppColorPick: View = view.findViewById(R.id.layoutAppColorPick)
-        }
+        inner class AppViewHolder(val b: ItemAppColorBinding) : RecyclerView.ViewHolder(b.root)
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): AppViewHolder {
-            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_app_row, parent, false)
-            return AppViewHolder(view)
+            val b = ItemAppColorBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+            return AppViewHolder(b)
         }
 
         override fun onBindViewHolder(holder: AppViewHolder, position: Int) {
             val item = list[position]
+            val b = holder.b
 
-            holder.ivAppIcon.setImageDrawable(item.icon)
-            holder.tvAppName.text = item.appName
-            holder.tvPackageName.text = item.packageName
+            b.ivAppIcon.setImageDrawable(item.icon)
+            b.tvAppName.text = item.appName
+            b.tvAppPackage.text = item.packageName
 
-            holder.viewAppColorDot.background = GradientDrawable().apply {
+            b.viewColorPreview.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(item.color)
             }
 
-            holder.switchAppEnabled.setOnCheckedChangeListener(null)
-            holder.switchAppEnabled.isChecked = item.isEnabled
-            holder.switchAppEnabled.setOnCheckedChangeListener { _, isChecked ->
+            b.switchAppEnabled.setOnCheckedChangeListener(null)
+            b.switchAppEnabled.isChecked = item.isEnabled
+            b.switchAppEnabled.setOnCheckedChangeListener { _, isChecked ->
                 onToggle(item, isChecked)
             }
 
-            holder.layoutAppColorPick.setOnClickListener {
+            b.viewColorPreview.setOnClickListener {
                 onItemClick(item)
             }
 
@@ -427,37 +421,58 @@ class AppsFragment : Fragment() {
         private val onSelect: (Int) -> Unit
     ) : RecyclerView.Adapter<ContactColorsPickerAdapter.ColorViewHolder>() {
 
-        inner class ColorViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-            val viewColorDot: View = view.findViewById(R.id.viewColorDot)
-            val viewSelectionRing: View = view.findViewById(R.id.viewSelectionRing)
-        }
+        inner class ColorViewHolder(
+            val root: FrameLayout,
+            val ringView: View,
+            val dotView: View
+        ) : RecyclerView.ViewHolder(root)
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ColorViewHolder {
-            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_color_circle, parent, false)
-            return ColorViewHolder(view)
+            val density = parent.context.resources.displayMetrics.density
+            val root = FrameLayout(parent.context).apply {
+                layoutParams = ViewGroup.MarginLayoutParams(
+                    (48 * density).toInt(),
+                    (48 * density).toInt()
+                ).apply {
+                    marginEnd = (8 * density).toInt()
+                }
+            }
+            val ring = View(parent.context).apply {
+                layoutParams = FrameLayout.LayoutParams((44 * density).toInt(), (44 * density).toInt()).apply {
+                    gravity = Gravity.CENTER
+                }
+            }
+            val dot = View(parent.context).apply {
+                layoutParams = FrameLayout.LayoutParams((32 * density).toInt(), (32 * density).toInt()).apply {
+                    gravity = Gravity.CENTER
+                }
+            }
+            root.addView(ring)
+            root.addView(dot)
+            return ColorViewHolder(root, ring, dot)
         }
 
         override fun onBindViewHolder(holder: ColorViewHolder, position: Int) {
             val color = colors[position]
             val density = holder.itemView.resources.displayMetrics.density
 
-            holder.viewColorDot.background = GradientDrawable().apply {
+            holder.dotView.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(color)
             }
 
             if (color == selected) {
-                holder.viewSelectionRing.visibility = View.VISIBLE
-                holder.viewSelectionRing.background = GradientDrawable().apply {
+                holder.ringView.visibility = View.VISIBLE
+                holder.ringView.background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     setColor(Color.TRANSPARENT)
                     setStroke((3 * density).toInt(), Color.WHITE)
                 }
             } else {
-                holder.viewSelectionRing.visibility = View.GONE
+                holder.ringView.visibility = View.GONE
             }
 
-            holder.itemView.setOnClickListener {
+            holder.root.setOnClickListener {
                 selected = color
                 notifyDataSetChanged()
                 onSelect(color)
@@ -472,30 +487,91 @@ class AppsFragment : Fragment() {
         private val onDeleteClick: (ContactColorItem) -> Unit
     ) : RecyclerView.Adapter<SavedContactsAdapter.ContactViewHolder>() {
 
-        inner class ContactViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-            val tvContactName: TextView = view.findViewById(R.id.tvContactName)
-            val tvContactSpeed: TextView = view.findViewById(R.id.tvContactSpeed)
-            val viewContactColorDot: View = view.findViewById(R.id.viewContactColorDot)
-            val btnDeleteContact: ImageButton = view.findViewById(R.id.btnDeleteContact)
-        }
+        inner class ContactViewHolder(
+            view: View,
+            val dotView: View,
+            val nameView: TextView,
+            val speedView: TextView,
+            val deleteBtn: ImageButton
+        ) : RecyclerView.ViewHolder(view)
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ContactViewHolder {
-            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_saved_contact, parent, false)
-            return ContactViewHolder(view)
+            val density = parent.context.resources.displayMetrics.density
+            val card = androidx.cardview.widget.CardView(parent.context).apply {
+                layoutParams = ViewGroup.MarginLayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(0, (4 * density).toInt(), 0, (4 * density).toInt())
+                }
+                setCardBackgroundColor(Color.parseColor("#121212"))
+                radius = 16 * density
+                cardElevation = 0f
+            }
+
+            val row = LinearLayout(parent.context).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding((14 * density).toInt(), (12 * density).toInt(), (14 * density).toInt(), (12 * density).toInt())
+            }
+
+            val dot = View(parent.context).apply {
+                layoutParams = LinearLayout.LayoutParams((32 * density).toInt(), (32 * density).toInt())
+            }
+
+            val textLayout = LinearLayout(parent.context).apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = (14 * density).toInt()
+                }
+                orientation = LinearLayout.VERTICAL
+            }
+
+            val tvName = TextView(parent.context).apply {
+                setTextColor(Color.WHITE)
+                textSize = 15f
+                paint.isFakeBoldText = true
+            }
+
+            val tvSpeed = TextView(parent.context).apply {
+                setTextColor(Color.parseColor("#80CBC4"))
+                textSize = 12f
+            }
+
+            textLayout.addView(tvName)
+            textLayout.addView(tvSpeed)
+
+            val btnDelete = ImageButton(parent.context).apply {
+                layoutParams = LinearLayout.LayoutParams((38 * density).toInt(), (38 * density).toInt())
+                setBackgroundColor(Color.TRANSPARENT)
+                setImageResource(R.drawable.ic_delete)
+                setColorFilter(Color.parseColor("#FF5252"))
+                contentDescription = "Delete Contact"
+            }
+
+            row.addView(dot)
+            row.addView(textLayout)
+            row.addView(btnDelete)
+            card.addView(row)
+
+            return ContactViewHolder(card, dot, tvName, tvSpeed, btnDelete)
         }
 
         override fun onBindViewHolder(holder: ContactViewHolder, position: Int) {
             val item = list[position]
 
-            holder.tvContactName.text = item.contactName
-            holder.tvContactSpeed.text = "Blink: ${item.speedMs}ms"
+            holder.nameView.text = item.contactName
+            holder.speedView.text = "Blink: ${item.speedMs}ms"
 
-            holder.viewContactColorDot.background = GradientDrawable().apply {
+            holder.dotView.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(item.color)
             }
 
-            holder.btnDeleteContact.setOnClickListener {
+            holder.deleteBtn.setOnClickListener {
                 onDeleteClick(item)
             }
         }
