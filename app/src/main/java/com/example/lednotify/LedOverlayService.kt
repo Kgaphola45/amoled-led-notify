@@ -9,20 +9,16 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.IBinder
-import android.os.PowerManager
 import android.provider.Settings
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.widget.Button
-import android.widget.FrameLayout
-import android.widget.LinearLayout
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
@@ -30,10 +26,10 @@ class LedOverlayService : Service() {
 
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
-    private var wakeLock: PowerManager.WakeLock? = null
+    private var ledDot: View? = null
     private var animator: ObjectAnimator? = null
-    private var isPositioningMode = false
     private var currentPackageName: String? = null
+    private var layoutParams: WindowManager.LayoutParams? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -49,13 +45,11 @@ class LedOverlayService : Service() {
             return START_NOT_STICKY
         }
 
-        isPositioningMode = (action == ACTION_POSITION_LED)
         if (intent?.hasExtra(EXTRA_PACKAGE_NAME) == true) {
             currentPackageName = intent.getStringExtra(EXTRA_PACKAGE_NAME)
         }
 
         startAsForeground()
-        acquireWakeLock()
         showOverlay()
 
         return START_NOT_STICKY
@@ -65,10 +59,10 @@ class LedOverlayService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "AMOLED LED Notification Service",
+                "LED Notification Dot",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Keeps the AMOLED LED overlay active for notifications"
+                description = "Shows the notification LED dot overlay"
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager?.createNotificationChannel(channel)
@@ -94,16 +88,10 @@ class LedOverlayService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notificationText = if (isPositioningMode) {
-            "LED positioning mode active. Tap screen when finished."
-        } else {
-            "LED notification active. Tap black screen to dismiss."
-        }
-
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.led_circle)
             .setContentTitle("AMOLED LED Notify")
-            .setContentText(notificationText)
+            .setContentText("LED dot active")
             .setContentIntent(contentPendingIntent)
             .addAction(0, "Stop LED", stopPendingIntent)
             .setOngoing(true)
@@ -128,24 +116,6 @@ class LedOverlayService : Service() {
     }
 
     @Suppress("DEPRECATION")
-    private fun acquireWakeLock() {
-        try {
-            if (wakeLock == null) {
-                val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-                wakeLock = powerManager.newWakeLock(
-                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                    "AMOLEDLEDNotify:LedWakeLock"
-                ).apply {
-                    setReferenceCounted(false)
-                }
-            }
-            wakeLock?.acquire(10 * 60 * 1000L) // 10 minutes timeout
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    @Suppress("DEPRECATION")
     @SuppressLint("InflateParams", "ClickableViewAccessibility")
     private fun showOverlay() {
         if (!Settings.canDrawOverlays(this)) {
@@ -153,14 +123,29 @@ class LedOverlayService : Service() {
             return
         }
 
-        val color = AppColorManager.getColorForPackage(this, currentPackageName)
+        // Color loading priority:
+        // 1. Check app_colors prefs using packageName extra
+        // 2. If not found, use default_color from app_colors
+        // 3. If still not found, use global color from led_prefs
+        val ledPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val appPrefs = getSharedPreferences(AppColorManager.PREFS_NAME, Context.MODE_PRIVATE)
 
-        // If overlay already displayed, simply refresh the LED color to the new app's color
-        if (overlayView != null) {
-            val ledDot = overlayView?.findViewById<View>(R.id.ledDot)
+        val globalColor = ledPrefs.getInt(KEY_COLOR, 0xFF00FF00.toInt())
+        val defaultColor = appPrefs.getInt(AppColorManager.KEY_DEFAULT_COLOR, globalColor)
+
+        val resolvedColor = if (currentPackageName != null && appPrefs.contains(currentPackageName)) {
+            appPrefs.getInt(currentPackageName, defaultColor)
+        } else if (appPrefs.contains(AppColorManager.KEY_DEFAULT_COLOR)) {
+            defaultColor
+        } else {
+            globalColor
+        }
+
+        // If overlay already exists, just update dot color dynamically
+        if (overlayView != null && ledDot != null) {
             val drawable = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(color)
+                setColor(resolvedColor)
             }
             ledDot?.background = drawable
             return
@@ -174,149 +159,112 @@ class LedOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        // Full screen flags including cutout extension and reaching all 4 corners
-        val layoutParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
+        // WRAP_CONTENT x WRAP_CONTENT, NO BLACK BACKGROUND, Screen remains fully usable underneath
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType,
-            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         )
+        params.gravity = Gravity.TOP or Gravity.START
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            layoutParams.layoutInDisplayCutoutMode =
+            params.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            layoutParams.layoutInDisplayCutoutMode =
+            params.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
 
+        val sizeDp = ledPrefs.getInt(KEY_SIZE, 22).coerceIn(10, 100)
+        val density = resources.displayMetrics.density
+        val sizePx = (sizeDp * density).toInt().coerceAtLeast(10)
+
+        val savedPosX = ledPrefs.getFloat(KEY_POS_X, -1f)
+        val savedPosY = ledPrefs.getFloat(KEY_POS_Y, -1f)
+
+        if (savedPosX >= 0f && savedPosY >= 0f) {
+            params.x = savedPosX.toInt()
+            params.y = savedPosY.toInt()
+        } else {
+            val screenW = resources.displayMetrics.widthPixels
+            val margin = (16 * density).toInt()
+            params.x = screenW - sizePx - margin
+            params.y = (24 * density).toInt()
+        }
+        layoutParams = params
+
         val inflater = LayoutInflater.from(this)
         val view = inflater.inflate(R.layout.overlay_led, null)
+        val dot = view.findViewById<View>(R.id.ledDot)
 
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val sizeDp = prefs.getInt(KEY_SIZE, 22)
-        val savedPosX = prefs.getFloat(KEY_POS_X, -1f)
-        val savedPosY = prefs.getFloat(KEY_POS_Y, -1f)
+        // Apply size
+        val dotLayoutParams = dot.layoutParams
+        dotLayoutParams.width = sizePx
+        dotLayoutParams.height = sizePx
+        dot.layoutParams = dotLayoutParams
 
-        val density = resources.displayMetrics.density
-        val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
-
-        val overlayRoot = view.findViewById<FrameLayout>(R.id.overlayRoot)
-        val ledTouchContainer = view.findViewById<FrameLayout>(R.id.ledTouchContainer)
-        val ledDot = view.findViewById<View>(R.id.ledDot)
-        val dragGuideRing = view.findViewById<View>(R.id.dragGuideRing)
-        val layoutPositioningControls = view.findViewById<LinearLayout>(R.id.layoutPositioningControls)
-
-        // Apply dot size
-        val dotParams = ledDot.layoutParams
-        dotParams.width = sizePx
-        dotParams.height = sizePx
-        ledDot.layoutParams = dotParams
-
-        // Apply per-app color
+        // Apply color
         val drawable = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setColor(color)
+            setColor(resolvedColor)
         }
-        ledDot.background = drawable
+        dot.background = drawable
 
-        // Generous touch hitbox (at least 60dp) so even a 2dp dot is easy to drag into corners
-        val touchSize = maxOf(sizePx, (60 * density).toInt())
-        val containerParams = ledTouchContainer.layoutParams
-        containerParams.width = touchSize
-        containerParams.height = touchSize
-        ledTouchContainer.layoutParams = containerParams
-
-        // Guide ring around touch target for precise visual alignment while dragging
-        val ringSize = maxOf(sizePx + (16 * density).toInt(), (48 * density).toInt())
-        val ringParams = dragGuideRing.layoutParams
-        ringParams.width = ringSize
-        ringParams.height = ringSize
-        dragGuideRing.layoutParams = ringParams
-        dragGuideRing.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(Color.TRANSPARENT)
-            setStroke((2 * density).toInt(), Color.argb(220, 255, 255, 255))
-        }
-
-        var dotX = 0f
-        var dotY = 0f
-
-        fun updateDotPosition(newX: Float, newY: Float) {
-            val screenW = view.width.toFloat()
-            val screenH = view.height.toFloat()
-            val maxX = (screenW - sizePx).coerceAtLeast(0f)
-            val maxY = (screenH - sizePx).coerceAtLeast(0f)
-
-            dotX = if (maxX > 0f) newX.coerceIn(0f, maxX) else newX
-            dotY = if (maxY > 0f) newY.coerceIn(0f, maxY) else newY
-
-            ledTouchContainer.x = dotX - (touchSize - sizePx) / 2f
-            ledTouchContainer.y = dotY - (touchSize - sizePx) / 2f
-        }
-
-        fun saveCurrentPosition() {
-            prefs.edit()
-                .putFloat(KEY_POS_X, dotX)
-                .putFloat(KEY_POS_Y, dotY)
-                .apply()
-        }
-
-        // Calculate and apply initial position
-        view.post {
-            val screenW = view.width.toFloat()
-            val screenH = view.height.toFloat()
-
-            if (savedPosX >= 0f && savedPosY >= 0f) {
-                updateDotPosition(savedPosX, savedPosY)
-            } else {
-                val margin = 12 * density
-                updateDotPosition(screenW - sizePx - margin, margin)
-            }
-        }
-
-        // Setup blink animation: alpha 1f to 0f, 600ms, INFINITE REVERSE
-        animator = ObjectAnimator.ofFloat(ledDot, View.ALPHA, 1f, 0f).apply {
+        // Blink with ObjectAnimator alpha 1 to 0, 600ms, INFINITE REVERSE
+        animator = ObjectAnimator.ofFloat(dot, View.ALPHA, 1f, 0f).apply {
             duration = 600L
             repeatCount = ObjectAnimator.INFINITE
             repeatMode = ObjectAnimator.REVERSE
             start()
         }
 
-        var dX = 0f
-        var dY = 0f
+        // Draggable dot: updates x, y in layoutParams and saves on ACTION_UP
+        var initialX = 0
+        var initialY = 0
+        var initialTouchX = 0f
+        var initialTouchY = 0f
 
-        // Touch listener on container allows dragging directly
-        ledTouchContainer.setOnTouchListener { _, event ->
+        dot.setOnTouchListener { _, event ->
+            val lp = layoutParams ?: return@setOnTouchListener false
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    dX = dotX - event.rawX
-                    dY = dotY - event.rawY
+                    initialX = lp.x
+                    initialY = lp.y
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
                     animator?.pause()
-                    ledDot.alpha = 1f
-                    dragGuideRing.visibility = View.VISIBLE
+                    dot.alpha = 1f
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    updateDotPosition(event.rawX + dX, event.rawY + dY)
+                    val deltaX = (event.rawX - initialTouchX).toInt()
+                    val deltaY = (event.rawY - initialTouchY).toInt()
+                    lp.x = (initialX + deltaX).coerceAtLeast(0)
+                    lp.y = (initialY + deltaY).coerceAtLeast(0)
+                    try {
+                        windowManager?.updateViewLayout(overlayView, lp)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    dragGuideRing.visibility = View.GONE
                     if (animator?.isPaused == true) {
                         animator?.resume()
                     }
-                    saveCurrentPosition()
+                    ledPrefs.edit()
+                        .putFloat(KEY_POS_X, lp.x.toFloat())
+                        .putFloat(KEY_POS_Y, lp.y.toFloat())
+                        .apply()
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    dragGuideRing.visibility = View.GONE
                     if (animator?.isPaused == true) {
                         animator?.resume()
                     }
@@ -326,77 +274,9 @@ class LedOverlayService : Service() {
             }
         }
 
-        if (isPositioningMode) {
-            layoutPositioningControls.visibility = View.VISIBLE
-
-            // In positioning mode: Touching ANYWHERE on the screen moves the dot directly to your finger!
-            overlayRoot.setOnTouchListener { _, event ->
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                        animator?.pause()
-                        ledDot.alpha = 1f
-                        dragGuideRing.visibility = View.VISIBLE
-                        // Place dot center right under finger
-                        updateDotPosition(event.rawX - sizePx / 2f, event.rawY - sizePx / 2f)
-                        true
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        dragGuideRing.visibility = View.GONE
-                        if (animator?.isPaused == true) {
-                            animator?.resume()
-                        }
-                        saveCurrentPosition()
-                        true
-                    }
-                    MotionEvent.ACTION_CANCEL -> {
-                        dragGuideRing.visibility = View.GONE
-                        if (animator?.isPaused == true) {
-                            animator?.resume()
-                        }
-                        true
-                    }
-                    else -> false
-                }
-            }
-
-            // Quick corner buttons right on the overlay
-            val margin = 8f * density
-            view.findViewById<Button>(R.id.btnOverlayCornerTL).setOnClickListener {
-                updateDotPosition(margin, margin)
-                saveCurrentPosition()
-            }
-            view.findViewById<Button>(R.id.btnOverlayCornerTR).setOnClickListener {
-                val screenW = view.width.toFloat()
-                updateDotPosition(screenW - sizePx - margin, margin)
-                saveCurrentPosition()
-            }
-            view.findViewById<Button>(R.id.btnOverlayCornerBL).setOnClickListener {
-                val screenH = view.height.toFloat()
-                updateDotPosition(margin, screenH - sizePx - margin)
-                saveCurrentPosition()
-            }
-            view.findViewById<Button>(R.id.btnOverlayCornerBR).setOnClickListener {
-                val screenW = view.width.toFloat()
-                val screenH = view.height.toFloat()
-                updateDotPosition(screenW - sizePx - margin, screenH - sizePx - margin)
-                saveCurrentPosition()
-            }
-
-            // Save & exit button
-            view.findViewById<Button>(R.id.btnSavePosition).setOnClickListener {
-                saveCurrentPosition()
-                stopSelf()
-            }
-        } else {
-            layoutPositioningControls.visibility = View.GONE
-
-            // In notification mode: Tapping overlay background (pure black) dismisses it
-            overlayRoot.setOnClickListener {
-                stopSelf()
-            }
-        }
-
+        ledDot = dot
         overlayView = view
+
         try {
             windowManager?.addView(overlayView, layoutParams)
         } catch (e: Exception) {
@@ -419,29 +299,18 @@ class LedOverlayService : Service() {
             }
         }
         overlayView = null
-    }
-
-    private fun releaseWakeLock() {
-        try {
-            if (wakeLock?.isHeld == true) {
-                wakeLock?.release()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        wakeLock = null
+        ledDot = null
+        layoutParams = null
     }
 
     override fun onDestroy() {
         removeOverlay()
-        releaseWakeLock()
         super.onDestroy()
     }
 
     companion object {
         const val ACTION_START_LED = "START_LED"
         const val ACTION_STOP_LED = "STOP_LED"
-        const val ACTION_POSITION_LED = "POSITION_LED"
         const val ACTION_START = "com.example.lednotify.ACTION_START"
         const val ACTION_STOP = "com.example.lednotify.ACTION_STOP"
         const val EXTRA_PACKAGE_NAME = "packageName"
@@ -461,13 +330,6 @@ class LedOverlayService : Service() {
                 if (packageName != null) {
                     putExtra(EXTRA_PACKAGE_NAME, packageName)
                 }
-            }
-            ContextCompat.startForegroundService(context, intent)
-        }
-
-        fun startPositioning(context: Context) {
-            val intent = Intent(context, LedOverlayService::class.java).apply {
-                action = ACTION_POSITION_LED
             }
             ContextCompat.startForegroundService(context, intent)
         }
