@@ -59,6 +59,18 @@ class MainActivity : ComponentActivity() {
     private lateinit var btnTestLed: Button
     private lateinit var btnStopLed: Button
 
+    // Visual styles & animation pattern views
+    private lateinit var btnCustomHexPicker: Button
+    private lateinit var btnStyleDot: Button
+    private lateinit var btnStyleRing: Button
+    private lateinit var tvStyleDescription: TextView
+    private lateinit var btnAutoAlignCamera: Button
+    private lateinit var btnAnimBlink: Button
+    private lateinit var btnAnimPulse: Button
+    private lateinit var btnAnimHeartbeat: Button
+    private lateinit var btnAnimSolid: Button
+    private lateinit var tvPatternDescription: TextView
+
     private val colorOptions = listOf(
         0xFF00FF00.toInt(), // Green
         0xFFFF0000.toInt(), // Red
@@ -92,6 +104,8 @@ class MainActivity : ComponentActivity() {
         setupWhatsAppContactColorsButton()
         setupSizeControl()
         setupColorPicker()
+        setupVisualStyles()
+        setupAnimationPatterns()
         setupPositionControls()
         setupLifecycleSwitches()
         setupHealthAndBatteryControls()
@@ -156,6 +170,17 @@ class MainActivity : ComponentActivity() {
         btnDndEndTime = findViewById(R.id.btnDndEndTime)
         btnTestLed = findViewById(R.id.btnTestLed)
         btnStopLed = findViewById(R.id.btnStopLed)
+
+        btnCustomHexPicker = findViewById(R.id.btnCustomHexPicker)
+        btnStyleDot = findViewById(R.id.btnStyleDot)
+        btnStyleRing = findViewById(R.id.btnStyleRing)
+        tvStyleDescription = findViewById(R.id.tvStyleDescription)
+        btnAutoAlignCamera = findViewById(R.id.btnAutoAlignCamera)
+        btnAnimBlink = findViewById(R.id.btnAnimBlink)
+        btnAnimPulse = findViewById(R.id.btnAnimPulse)
+        btnAnimHeartbeat = findViewById(R.id.btnAnimHeartbeat)
+        btnAnimSolid = findViewById(R.id.btnAnimSolid)
+        tvPatternDescription = findViewById(R.id.tvPatternDescription)
     }
 
     private fun setupPermissions() {
@@ -275,6 +300,333 @@ class MainActivity : ComponentActivity() {
             }
             colorViews.add(colorView)
             layoutColors.addView(colorView)
+        }
+
+        btnCustomHexPicker.setOnClickListener {
+            showCustomHexColorPicker()
+        }
+    }
+
+    private fun showCustomHexColorPicker() {
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+        var currentColor = prefs.getInt(LedOverlayService.KEY_COLOR, 0xFF00FF00.toInt())
+
+        val dialogView = layoutInflater.inflate(R.layout.dialog_custom_color_picker, null)
+        val viewColorPreview = dialogView.findViewById<View>(R.id.viewColorPreview)
+        val etHexCode = dialogView.findViewById<android.widget.EditText>(R.id.etHexCode)
+        val tvRedLabel = dialogView.findViewById<TextView>(R.id.tvRedLabel)
+        val seekBarRed = dialogView.findViewById<SeekBar>(R.id.seekBarRed)
+        val tvGreenLabel = dialogView.findViewById<TextView>(R.id.tvGreenLabel)
+        val seekBarGreen = dialogView.findViewById<SeekBar>(R.id.seekBarGreen)
+        val tvBlueLabel = dialogView.findViewById<TextView>(R.id.tvBlueLabel)
+        val seekBarBlue = dialogView.findViewById<SeekBar>(R.id.seekBarBlue)
+        val layoutNeonPresets = dialogView.findViewById<LinearLayout>(R.id.layoutNeonPresets)
+        val btnCancel = dialogView.findViewById<Button>(R.id.btnCancelCustomColor)
+        val btnApply = dialogView.findViewById<Button>(R.id.btnApplyCustomColor)
+
+        val neonPresets = listOf(
+            Pair("Neon Lime", 0xFF00FF00.toInt()),
+            Pair("Neon Cyan", 0xFF00E5FF.toInt()),
+            Pair("Electric Blue", 0xFF0066FF.toInt()),
+            Pair("Hot Pink", 0xFFFF007F.toInt()),
+            Pair("Ultra Red", 0xFFFF0000.toInt()),
+            Pair("Amber Glow", 0xFFFF9100.toInt()),
+            Pair("Neon Purple", 0xFFD500F9.toInt()),
+            Pair("Pure White", 0xFFFFFFFF.toInt())
+        )
+
+        var isUpdatingInternally = false
+
+        fun formatHex(color: Int): String {
+            return String.format(java.util.Locale.US, "#%06X", 0xFFFFFF and color)
+        }
+
+        fun updatePreviewAndText(color: Int) {
+            currentColor = color
+            viewColorPreview.setBackgroundColor(color)
+            tvRedLabel.text = "Red: ${Color.red(color)}"
+            tvGreenLabel.text = "Green: ${Color.green(color)}"
+            tvBlueLabel.text = "Blue: ${Color.blue(color)}"
+        }
+
+        // Initialize state
+        var r = Color.red(currentColor)
+        var g = Color.green(currentColor)
+        var b = Color.blue(currentColor)
+        seekBarRed.progress = r
+        seekBarGreen.progress = g
+        seekBarBlue.progress = b
+        etHexCode.setText(formatHex(currentColor))
+        updatePreviewAndText(currentColor)
+
+        val density = resources.displayMetrics.density
+        val swatchSizePx = (34 * density).toInt()
+        val swatchMarginPx = (4 * density).toInt()
+
+        for ((_, presetColor) in neonPresets) {
+            val swatch = View(this).apply {
+                val lp = LinearLayout.LayoutParams(swatchSizePx, swatchSizePx).apply {
+                    setMargins(swatchMarginPx, swatchMarginPx, swatchMarginPx, swatchMarginPx)
+                }
+                layoutParams = lp
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(presetColor)
+                    setStroke((1 * density).toInt(), Color.parseColor("#444444"))
+                }
+                setOnClickListener {
+                    isUpdatingInternally = true
+                    r = Color.red(presetColor)
+                    g = Color.green(presetColor)
+                    b = Color.blue(presetColor)
+                    seekBarRed.progress = r
+                    seekBarGreen.progress = g
+                    seekBarBlue.progress = b
+                    etHexCode.setText(formatHex(presetColor))
+                    updatePreviewAndText(presetColor)
+                    isUpdatingInternally = false
+                }
+            }
+            layoutNeonPresets.addView(swatch)
+        }
+
+        val seekListener = object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (isUpdatingInternally) return
+                r = seekBarRed.progress
+                g = seekBarGreen.progress
+                b = seekBarBlue.progress
+                val color = Color.rgb(r, g, b)
+                isUpdatingInternally = true
+                etHexCode.setText(formatHex(color))
+                updatePreviewAndText(color)
+                isUpdatingInternally = false
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        }
+
+        seekBarRed.setOnSeekBarChangeListener(seekListener)
+        seekBarGreen.setOnSeekBarChangeListener(seekListener)
+        seekBarBlue.setOnSeekBarChangeListener(seekListener)
+
+        etHexCode.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (isUpdatingInternally) return
+                val text = s?.toString()?.trim() ?: ""
+                try {
+                    val parsed = Color.parseColor(if (text.startsWith("#")) text else "#$text")
+                    isUpdatingInternally = true
+                    r = Color.red(parsed)
+                    g = Color.green(parsed)
+                    b = Color.blue(parsed)
+                    seekBarRed.progress = r
+                    seekBarGreen.progress = g
+                    seekBarBlue.progress = b
+                    updatePreviewAndText(parsed)
+                    isUpdatingInternally = false
+                } catch (e: Exception) {
+                    // Ignore while typing incomplete hex
+                }
+            }
+        })
+
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setView(dialogView)
+            .create()
+
+        btnCancel.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        btnApply.setOnClickListener {
+            prefs.edit().putInt(LedOverlayService.KEY_COLOR, currentColor).apply()
+            AppColorManager.setDefaultColor(this, currentColor)
+            refreshColorSelection(currentColor)
+            val currentSize = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
+            updatePreviewDot(currentSize, currentColor)
+            LedOverlayService.updateLiveColor(currentColor)
+            Toast.makeText(this, "Color applied: ${formatHex(currentColor)}", Toast.LENGTH_SHORT).show()
+            dialog.dismiss()
+        }
+
+        dialog.show()
+    }
+
+    private fun setupVisualStyles() {
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+
+        fun updateStyleUi(style: String) {
+            val isDot = style == LedOverlayService.STYLE_DOT
+            btnStyleDot.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                if (isDot) Color.parseColor("#5E35B1") else Color.parseColor("#333333")
+            )
+            btnStyleRing.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                if (!isDot) Color.parseColor("#5E35B1") else Color.parseColor("#333333")
+            )
+            tvStyleDescription.text = if (isDot) {
+                "Solid LED Dot: Displays a vibrant, solid circular indicator."
+            } else {
+                "Camera Notch Ring: Draws an illuminated hollow ring around your camera hole (transparent center for lens)."
+            }
+        }
+
+        val currentStyle = prefs.getString(LedOverlayService.KEY_VISUAL_STYLE, LedOverlayService.STYLE_DOT) ?: LedOverlayService.STYLE_DOT
+        updateStyleUi(currentStyle)
+
+        btnStyleDot.setOnClickListener {
+            prefs.edit().putString(LedOverlayService.KEY_VISUAL_STYLE, LedOverlayService.STYLE_DOT).apply()
+            updateStyleUi(LedOverlayService.STYLE_DOT)
+            val size = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
+            val color = AppColorManager.getDefaultColor(this)
+            updatePreviewDot(size, color)
+            LedOverlayService.updateLiveStyle()
+            Toast.makeText(this, "Visual Style: Solid LED Dot", Toast.LENGTH_SHORT).show()
+        }
+
+        btnStyleRing.setOnClickListener {
+            prefs.edit().putString(LedOverlayService.KEY_VISUAL_STYLE, LedOverlayService.STYLE_RING).apply()
+            updateStyleUi(LedOverlayService.STYLE_RING)
+            val size = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
+            val color = AppColorManager.getDefaultColor(this)
+            updatePreviewDot(size, color)
+            LedOverlayService.updateLiveStyle()
+            Toast.makeText(this, "Visual Style: Camera Notch Ring", Toast.LENGTH_SHORT).show()
+        }
+
+        btnAutoAlignCamera.setOnClickListener {
+            autoAlignRingToCameraHole()
+        }
+    }
+
+    private fun autoAlignRingToCameraHole() {
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+        val density = resources.displayMetrics.density
+        val (screenW, screenH) = LedOverlayService.getRealScreenSize(this)
+
+        var detectedCenterX: Float? = null
+        var detectedCenterY: Float? = null
+        var detectedDiameterPx: Int? = null
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val insets = window.decorView.rootWindowInsets
+            val cutout = insets?.displayCutout
+            val rects = cutout?.boundingRects
+
+            if (!rects.isNullOrEmpty()) {
+                val cameraRect = rects.firstOrNull { it.top < screenH / 3 && it.height() > 0 && it.width() > 0 }
+                    ?: rects.first()
+
+                detectedCenterX = cameraRect.exactCenterX()
+                detectedCenterY = cameraRect.exactCenterY()
+                val baseSize = maxOf(cameraRect.width(), cameraRect.height())
+                detectedDiameterPx = baseSize + (6 * density).toInt()
+            }
+        }
+
+        val finalDiameterDp: Int
+        val finalDiameterPx: Int
+        val finalPosX: Float
+        val finalPosY: Float
+
+        if (detectedCenterX != null && detectedCenterY != null && detectedDiameterPx != null) {
+            finalDiameterDp = (detectedDiameterPx / density).toInt().coerceIn(16, 80)
+            finalDiameterPx = (finalDiameterDp * density).toInt()
+            finalPosX = (detectedCenterX - finalDiameterPx / 2f).coerceIn(0f, (screenW - finalDiameterPx).toFloat())
+            finalPosY = (detectedCenterY - finalDiameterPx / 2f).coerceIn(0f, (screenH - finalDiameterPx).toFloat())
+
+            Toast.makeText(
+                this,
+                "Camera punch-hole detected! Aligned ${finalDiameterDp}dp ring around camera.",
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            finalDiameterDp = 30
+            finalDiameterPx = (finalDiameterDp * density).toInt()
+            finalPosX = ((screenW - finalDiameterPx) / 2f).coerceAtLeast(0f)
+            finalPosY = 6 * density
+
+            Toast.makeText(
+                this,
+                "Punch-hole not reported by OS. Positioned at top-center. You can drag to align with your camera!",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+
+        prefs.edit()
+            .putString(LedOverlayService.KEY_VISUAL_STYLE, LedOverlayService.STYLE_RING)
+            .putInt(LedOverlayService.KEY_SIZE, finalDiameterDp)
+            .putFloat(LedOverlayService.KEY_POS_X, finalPosX)
+            .putFloat(LedOverlayService.KEY_POS_Y, finalPosY)
+            .apply()
+
+        btnStyleDot.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#333333"))
+        btnStyleRing.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#5E35B1"))
+        tvStyleDescription.text = "Camera Notch Ring: Draws an illuminated hollow ring around your camera hole (transparent center for lens)."
+
+        tvSizeLabel.text = "LED Dot Size: ${finalDiameterDp}dp"
+        seekBarSize.progress = (finalDiameterDp - 2).coerceAtLeast(0)
+        syncPositionSliders()
+
+        val color = AppColorManager.getDefaultColor(this)
+        updatePreviewDot(finalDiameterDp, color)
+
+        if (Settings.canDrawOverlays(this)) {
+            if (LedOverlayService.isRunning()) {
+                LedOverlayService.updateLiveSize(finalDiameterDp)
+                LedOverlayService.updateLivePosition(finalPosX, finalPosY)
+                LedOverlayService.updateLiveStyle()
+            } else {
+                LedOverlayService.startPositioning(this)
+            }
+        }
+    }
+
+    private fun setupAnimationPatterns() {
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+
+        fun updatePatternUi(pattern: String) {
+            btnAnimBlink.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                if (pattern == LedOverlayService.PATTERN_BLINK) Color.parseColor("#5E35B1") else Color.parseColor("#333333")
+            )
+            btnAnimPulse.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                if (pattern == LedOverlayService.PATTERN_PULSE) Color.parseColor("#5E35B1") else Color.parseColor("#333333")
+            )
+            btnAnimHeartbeat.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                if (pattern == LedOverlayService.PATTERN_HEARTBEAT) Color.parseColor("#5E35B1") else Color.parseColor("#333333")
+            )
+            btnAnimSolid.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                if (pattern == LedOverlayService.PATTERN_SOLID) Color.parseColor("#5E35B1") else Color.parseColor("#333333")
+            )
+
+            tvPatternDescription.text = when (pattern) {
+                LedOverlayService.PATTERN_PULSE -> "Pattern: Breathing / Pulse (Smooth sinusoidal glow)"
+                LedOverlayService.PATTERN_HEARTBEAT -> "Pattern: Heartbeat (Double-blink: thump-thump ... pause)"
+                LedOverlayService.PATTERN_SOLID -> "Pattern: Solid Glow (Constant subtle illumination, no blink)"
+                else -> "Pattern: Blink (Standard on-off flashing)"
+            }
+        }
+
+        val currentPattern = prefs.getString(LedOverlayService.KEY_ANIMATION_PATTERN, LedOverlayService.PATTERN_BLINK) ?: LedOverlayService.PATTERN_BLINK
+        updatePatternUi(currentPattern)
+
+        val patternButtons = listOf(
+            Pair(btnAnimBlink, LedOverlayService.PATTERN_BLINK),
+            Pair(btnAnimPulse, LedOverlayService.PATTERN_PULSE),
+            Pair(btnAnimHeartbeat, LedOverlayService.PATTERN_HEARTBEAT),
+            Pair(btnAnimSolid, LedOverlayService.PATTERN_SOLID)
+        )
+
+        for ((button, patternKey) in patternButtons) {
+            button.setOnClickListener {
+                prefs.edit().putString(LedOverlayService.KEY_ANIMATION_PATTERN, patternKey).apply()
+                updatePatternUi(patternKey)
+                LedOverlayService.updateLiveAnimationPattern()
+                Toast.makeText(this, "Pattern: ${button.text}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

@@ -915,6 +915,17 @@ class LedOverlayService : Service() {
         const val KEY_DND_END_HOUR = "dnd_end_hour"
         const val KEY_DND_END_MINUTE = "dnd_end_minute"
 
+        // Visual styles & animations
+        const val KEY_VISUAL_STYLE = "visual_style"
+        const val STYLE_DOT = "dot"
+        const val STYLE_RING = "ring"
+
+        const val KEY_ANIMATION_PATTERN = "animation_pattern"
+        const val PATTERN_BLINK = "blink"
+        const val PATTERN_PULSE = "pulse"
+        const val PATTERN_HEARTBEAT = "heartbeat"
+        const val PATTERN_SOLID = "solid"
+
         const val CYCLE_INTERVAL_MS = 2500L
         const val PIXEL_SHIFT_INTERVAL_MS = 60000L
 
@@ -958,6 +969,18 @@ class LedOverlayService : Service() {
 
         fun updateLiveBlinkSpeed(speedMs: Int) {
             instanceRef?.get()?.applyBlinkSpeed(speedMs)
+        }
+
+        fun updateLiveStyle() {
+            instanceRef?.get()?.let { service ->
+                service.applyColor(service.activeColor)
+            }
+        }
+
+        fun updateLiveAnimationPattern() {
+            instanceRef?.get()?.let { service ->
+                service.startBlinkAnimation()
+            }
         }
 
         fun start(context: Context, packageName: String? = null, senderName: String? = null, isTest: Boolean = false) {
