@@ -368,6 +368,13 @@ class LedOverlayService : Service() {
             return
         }
 
+        // Master Enable / Quick Settings toggle check
+        if (!LedTileService.isMasterEnabled(this)) {
+            overlayView?.visibility = View.GONE
+            pauseBlinkAnimation()
+            return
+        }
+
         // 2. Quiet Hours / DND check
         if (isWithinDndHours()) {
             overlayView?.visibility = View.GONE

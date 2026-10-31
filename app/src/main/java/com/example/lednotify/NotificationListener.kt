@@ -83,6 +83,13 @@ class NotificationListener : NotificationListenerService() {
     }
 
     private fun syncActiveAlerts(postedSbn: StatusBarNotification? = null, removedKey: String? = null) {
+        if (!LedTileService.isMasterEnabled(this)) {
+            if (!LedOverlayService.isManualMode) {
+                LedOverlayService.stop(this)
+            }
+            return
+        }
+
         val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
         val appPrefs = getSharedPreferences(AppColorManager.PREFS_NAME, Context.MODE_PRIVATE)
         val globalColor = prefs.getInt(LedOverlayService.KEY_COLOR, 0xFF00FF00.toInt())
