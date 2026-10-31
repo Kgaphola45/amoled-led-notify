@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/nav_home">
+
+    <fragment
+        android:id="@+id/nav_home"
+        android:name="com.example.lednotify.HomeFragment"
+        android:label="Home" />
+
+    <fragment
+        android:id="@+id/nav_style"
+        android:name="com.example.lednotify.StyleFragment"
+        android:label="Style" />
+
+    <fragment
+        android:id="@+id/nav_apps"
+        android:name="com.example.lednotify.AppsFragment"
+        android:label="Apps" />
+
+    <fragment
+        android:id="@+id/nav_settings"
+        android:name="com.example.lednotify.SettingsFragment"
+        android:label="Settings" />
+
+</navigation>
