@@ -207,7 +207,7 @@ class AppsFragment : Fragment() {
                 if (launchIntent != null && appInfo.packageName != ctx.packageName) {
                     val appName = pm.getApplicationLabel(appInfo).toString()
                     val icon = pm.getApplicationIcon(appInfo)
-                    val color = AppColorManager.getAppColor(ctx, appInfo.packageName)
+                    val color = AppColorManager.getColorForPackage(ctx, appInfo.packageName)
                     val isEnabled = AppColorManager.isAppEnabled(ctx, appInfo.packageName)
                     items.add(AppInfoItem(appName, appInfo.packageName, icon, color, isEnabled))
                 }
@@ -277,7 +277,7 @@ class AppsFragment : Fragment() {
                 isFocusable = true
                 setOnClickListener {
                     item.color = color
-                    AppColorManager.setAppColor(ctx, item.packageName, color)
+                    AppColorManager.setColorForPackage(ctx, item.packageName, color)
                     appsAdapter.notifyDataSetChanged()
                     dialog?.dismiss()
                     Toast.makeText(ctx, "Updated LED color for ${item.appName}", Toast.LENGTH_SHORT).show()
@@ -377,8 +377,7 @@ class AppsFragment : Fragment() {
             }
 
             val ctx = requireContext()
-            ContactColorManager.setColorForContact(ctx, name, selectedContactColor)
-            ContactColorManager.setSpeedForContact(ctx, name, selectedContactSpeed)
+            ContactColorManager.saveContactColor(ctx, name, selectedContactColor, selectedContactSpeed)
 
             binding.etContactName.setText("")
             Toast.makeText(ctx, "Saved LED for $name", Toast.LENGTH_SHORT).show()
@@ -392,7 +391,7 @@ class AppsFragment : Fragment() {
                 .setTitle("Delete Contact Mapping?")
                 .setMessage("Remove custom LED color for ${item.contactName}?")
                 .setPositiveButton("Delete") { _, _ ->
-                    ContactColorManager.removeContact(ctx, item.contactName)
+                    ContactColorManager.deleteContactColor(ctx, item.contactName)
                     refreshSavedContacts()
                     Toast.makeText(ctx, "Removed ${item.contactName}", Toast.LENGTH_SHORT).show()
                 }
