@@ -95,6 +95,18 @@ class MainActivity : ComponentActivity() {
         val color = AppColorManager.getDefaultColor(this)
         updatePreviewDot(size, color)
         syncPositionSliders()
+
+        // Sync sliders in real time when dot is dragged on screen
+        LedOverlayService.onPositionChangedListener = { x, y ->
+            runOnUiThread {
+                syncPositionSlidersFromCoords(x, y)
+            }
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        LedOverlayService.onPositionChangedListener = null
     }
 
     private fun bindViews() {
@@ -201,6 +213,7 @@ class MainActivity : ComponentActivity() {
                 prefs.edit().putInt(LedOverlayService.KEY_SIZE, currentSize).apply()
                 val currentColor = AppColorManager.getDefaultColor(this@MainActivity)
                 updatePreviewDot(currentSize, currentColor)
+                LedOverlayService.updateLiveSize(currentSize)
             }
 
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
@@ -233,6 +246,7 @@ class MainActivity : ComponentActivity() {
                     refreshColorSelection(currentColor)
                     val currentSize = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
                     updatePreviewDot(currentSize, color)
+                    LedOverlayService.updateLiveColor(color)
                 }
             }
             colorViews.add(colorView)
@@ -289,6 +303,7 @@ class MainActivity : ComponentActivity() {
             val currentColor = AppColorManager.getDefaultColor(this)
             updatePreviewDot(sizeDp, currentColor)
             syncPositionSliders()
+            LedOverlayService.updateLivePosition(posX, posY)
             Toast.makeText(this, "Position set to $name", Toast.LENGTH_SHORT).show()
         }
 
@@ -320,6 +335,9 @@ class MainActivity : ComponentActivity() {
                     prefs.edit().putFloat(LedOverlayService.KEY_POS_X, newX).apply()
                     tvPosXLabel.text = "Horizontal Position (X): $progress%"
                     updatePreviewDot(sizeDp, AppColorManager.getDefaultColor(this@MainActivity))
+
+                    val currentY = prefs.getFloat(LedOverlayService.KEY_POS_Y, 0f)
+                    LedOverlayService.updateLivePosition(newX, currentY)
                 }
             }
 
@@ -339,6 +357,9 @@ class MainActivity : ComponentActivity() {
                     prefs.edit().putFloat(LedOverlayService.KEY_POS_Y, newY).apply()
                     tvPosYLabel.text = "Vertical Position (Y): $progress%"
                     updatePreviewDot(sizeDp, AppColorManager.getDefaultColor(this@MainActivity))
+
+                    val currentX = prefs.getFloat(LedOverlayService.KEY_POS_X, 0f)
+                    LedOverlayService.updateLivePosition(currentX, newY)
                 }
             }
 
@@ -380,6 +401,27 @@ class MainActivity : ComponentActivity() {
 
             seekBarPosY.progress = percentY
             tvPosYLabel.text = "Vertical Position (Y): $percentY%"
+        }
+    }
+
+    private fun syncPositionSlidersFromCoords(posX: Float, posY: Float) {
+        val screenW = resources.displayMetrics.widthPixels.toFloat()
+        val screenH = resources.displayMetrics.heightPixels.toFloat()
+
+        if (screenW > 0f && screenH > 0f) {
+            val percentX = ((posX / screenW) * 100).toInt().coerceIn(0, 100)
+            val percentY = ((posY / screenH) * 100).toInt().coerceIn(0, 100)
+
+            seekBarPosX.progress = percentX
+            tvPosXLabel.text = "Horizontal Position (X): $percentX%"
+
+            seekBarPosY.progress = percentY
+            tvPosYLabel.text = "Vertical Position (Y): $percentY%"
+
+            val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+            val size = prefs.getInt(LedOverlayService.KEY_SIZE, 2)
+            val color = AppColorManager.getDefaultColor(this)
+            updatePreviewDot(size, color)
         }
     }
 

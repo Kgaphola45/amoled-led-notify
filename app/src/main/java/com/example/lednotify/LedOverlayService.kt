@@ -9,6 +9,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -21,21 +22,27 @@ import android.view.View
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import java.lang.ref.WeakReference
 
 class LedOverlayService : Service() {
 
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
     private var ledDot: View? = null
-    private var animator: ObjectAnimator? = null
+    private var ledGlow: View? = null
+    private var dragRing: View? = null
+    private var dotAnimator: ObjectAnimator? = null
+    private var glowAnimator: ObjectAnimator? = null
     private var currentPackageName: String? = null
     private var currentSenderName: String? = null
     private var layoutParams: WindowManager.LayoutParams? = null
+    private var activeColor: Int = 0xFF00FF00.toInt()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        instanceRef = WeakReference(this)
         createNotificationChannel()
     }
 
@@ -129,11 +136,6 @@ class LedOverlayService : Service() {
             return
         }
 
-        // Color loading priority:
-        // 1. Check contact_colors prefs using senderName extra (e.g. WhatsApp contact)
-        // 2. Check app_colors prefs using packageName extra
-        // 3. Use default_color from app_colors
-        // 4. Fallback to global color from led_prefs
         val ledPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val appPrefs = getSharedPreferences(AppColorManager.PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -146,7 +148,7 @@ class LedOverlayService : Service() {
             null
         }
 
-        val resolvedColor = contactColor
+        activeColor = contactColor
             ?: (if (currentPackageName != null && appPrefs.contains(currentPackageName)) {
                 appPrefs.getInt(currentPackageName, defaultColor)
             } else if (appPrefs.contains(AppColorManager.KEY_DEFAULT_COLOR)) {
@@ -156,22 +158,11 @@ class LedOverlayService : Service() {
             })
 
         val sizeDp = ledPrefs.getInt(KEY_SIZE, 2).coerceIn(2, 100)
-        val density = resources.displayMetrics.density
-        val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
 
-        // If overlay already exists, just update dot color and size dynamically
+        // If overlay already exists, just update live dot and glow
         if (overlayView != null && ledDot != null) {
-            val dotLayoutParams = ledDot?.layoutParams
-            if (dotLayoutParams != null) {
-                dotLayoutParams.width = sizePx
-                dotLayoutParams.height = sizePx
-                ledDot?.layoutParams = dotLayoutParams
-            }
-            val drawable = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(resolvedColor)
-            }
-            ledDot?.background = drawable
+            applyColor(activeColor)
+            applySize(sizeDp)
             return
         }
 
@@ -197,6 +188,10 @@ class LedOverlayService : Service() {
         )
         params.gravity = Gravity.TOP or Gravity.START
 
+        // Force maximum display brightness for SUPERBRIGHT LED on AMOLED
+        params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
+        params.buttonBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             params.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
@@ -204,6 +199,9 @@ class LedOverlayService : Service() {
             params.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
+
+        val density = resources.displayMetrics.density
+        val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
 
         val savedPosX = ledPrefs.getFloat(KEY_POS_X, -1f)
         val savedPosY = ledPrefs.getFloat(KEY_POS_Y, -1f)
@@ -222,35 +220,36 @@ class LedOverlayService : Service() {
         val inflater = LayoutInflater.from(this)
         val view = inflater.inflate(R.layout.overlay_led, null)
         val dot = view.findViewById<View>(R.id.ledDot)
+        val glow = view.findViewById<View>(R.id.ledGlow)
+        val ring = view.findViewById<View>(R.id.dragRing)
 
-        // Apply size
-        val dotLayoutParams = dot.layoutParams
-        dotLayoutParams.width = sizePx
-        dotLayoutParams.height = sizePx
-        dot.layoutParams = dotLayoutParams
+        ledDot = dot
+        ledGlow = glow
+        dragRing = ring
+        overlayView = view
 
-        // Apply color
-        val drawable = GradientDrawable().apply {
+        // Apply visual styling (dot + superbright glow + drag ring)
+        applySize(sizeDp)
+        applyColor(activeColor)
+
+        // Setup drag ring drawable
+        val ringDrawable = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setColor(resolvedColor)
+            setColor(Color.argb(35, 255, 255, 255))
+            setStroke((2 * density).toInt(), Color.argb(180, 255, 255, 255))
         }
-        dot.background = drawable
+        ring.background = ringDrawable
 
-        // Blink with ObjectAnimator alpha 1 to 0, 600ms, INFINITE REVERSE
-        animator = ObjectAnimator.ofFloat(dot, View.ALPHA, 1f, 0f).apply {
-            duration = 600L
-            repeatCount = ObjectAnimator.INFINITE
-            repeatMode = ObjectAnimator.REVERSE
-            start()
-        }
+        // Blink animation: animates both dot and outer glow for authentic LED pulse
+        startBlinkAnimation()
 
-        // Draggable dot: updates x, y in layoutParams and saves on ACTION_UP
+        // Draggable overlay: touch anywhere in the padded overlay to move smoothly
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
         var initialTouchY = 0f
 
-        dot.setOnTouchListener { _, event ->
+        view.setOnTouchListener { _, event ->
             val lp = layoutParams ?: return@setOnTouchListener false
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -258,26 +257,28 @@ class LedOverlayService : Service() {
                     initialY = lp.y
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
-                    animator?.pause()
+                    dragRing?.visibility = View.VISIBLE
+                    pauseBlinkAnimation()
                     dot.alpha = 1f
+                    glow.alpha = 1f
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val deltaX = (event.rawX - initialTouchX).toInt()
                     val deltaY = (event.rawY - initialTouchY).toInt()
-                    lp.x = (initialX + deltaX).coerceAtLeast(0)
-                    lp.y = (initialY + deltaY).coerceAtLeast(0)
+                    lp.x = initialX + deltaX
+                    lp.y = initialY + deltaY
                     try {
                         windowManager?.updateViewLayout(overlayView, lp)
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
+                    onPositionChangedListener?.invoke(lp.x.toFloat(), lp.y.toFloat())
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (animator?.isPaused == true) {
-                        animator?.resume()
-                    }
+                    dragRing?.visibility = View.GONE
+                    resumeBlinkAnimation()
                     ledPrefs.edit()
                         .putFloat(KEY_POS_X, lp.x.toFloat())
                         .putFloat(KEY_POS_Y, lp.y.toFloat())
@@ -285,17 +286,13 @@ class LedOverlayService : Service() {
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    if (animator?.isPaused == true) {
-                        animator?.resume()
-                    }
+                    dragRing?.visibility = View.GONE
+                    resumeBlinkAnimation()
                     true
                 }
                 else -> false
             }
         }
-
-        ledDot = dot
-        overlayView = view
 
         try {
             windowManager?.addView(overlayView, layoutParams)
@@ -305,9 +302,109 @@ class LedOverlayService : Service() {
         }
     }
 
+    fun applySize(sizeDp: Int) {
+        val density = resources.displayMetrics.density
+        val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
+        val glowPx = sizePx + (8 * density).toInt()
+
+        ledDot?.let { dot ->
+            val lp = dot.layoutParams
+            lp.width = sizePx
+            lp.height = sizePx
+            dot.layoutParams = lp
+        }
+
+        ledGlow?.let { glow ->
+            val lp = glow.layoutParams
+            lp.width = glowPx
+            lp.height = glowPx
+            glow.layoutParams = lp
+        }
+
+        if (overlayView != null && layoutParams != null) {
+            try {
+                windowManager?.updateViewLayout(overlayView, layoutParams)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun applyColor(color: Int) {
+        activeColor = color
+
+        // Core dot: intense solid color
+        val dotDrawable = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(color)
+        }
+        ledDot?.background = dotDrawable
+
+        // Outer glow: luminous translucent bloom
+        val glowAlpha = Color.argb(
+            90,
+            Color.red(color),
+            Color.green(color),
+            Color.blue(color)
+        )
+        val glowDrawable = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(glowAlpha)
+        }
+        ledGlow?.background = glowDrawable
+    }
+
+    fun applyPosition(x: Float, y: Float) {
+        val lp = layoutParams ?: return
+        lp.x = x.toInt()
+        lp.y = y.toInt()
+        try {
+            windowManager?.updateViewLayout(overlayView, lp)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun startBlinkAnimation() {
+        ledDot?.let { dot ->
+            dotAnimator?.cancel()
+            dotAnimator = ObjectAnimator.ofFloat(dot, View.ALPHA, 1f, 0.05f).apply {
+                duration = 600L
+                repeatCount = ObjectAnimator.INFINITE
+                repeatMode = ObjectAnimator.REVERSE
+                start()
+            }
+        }
+        ledGlow?.let { glow ->
+            glowAnimator?.cancel()
+            glowAnimator = ObjectAnimator.ofFloat(glow, View.ALPHA, 1f, 0.05f).apply {
+                duration = 600L
+                repeatCount = ObjectAnimator.INFINITE
+                repeatMode = ObjectAnimator.REVERSE
+                start()
+            }
+        }
+    }
+
+    private fun pauseBlinkAnimation() {
+        dotAnimator?.pause()
+        glowAnimator?.pause()
+    }
+
+    private fun resumeBlinkAnimation() {
+        if (dotAnimator?.isPaused == true) {
+            dotAnimator?.resume()
+        }
+        if (glowAnimator?.isPaused == true) {
+            glowAnimator?.resume()
+        }
+    }
+
     private fun removeOverlay() {
-        animator?.cancel()
-        animator = null
+        dotAnimator?.cancel()
+        glowAnimator?.cancel()
+        dotAnimator = null
+        glowAnimator = null
 
         overlayView?.let { view ->
             try {
@@ -320,10 +417,13 @@ class LedOverlayService : Service() {
         }
         overlayView = null
         ledDot = null
+        ledGlow = null
+        dragRing = null
         layoutParams = null
     }
 
     override fun onDestroy() {
+        instanceRef = null
         removeOverlay()
         super.onDestroy()
     }
@@ -344,6 +444,24 @@ class LedOverlayService : Service() {
 
         private const val CHANNEL_ID = "led_overlay_channel"
         private const val NOTIFICATION_ID = 1001
+
+        private var instanceRef: WeakReference<LedOverlayService>? = null
+
+        var onPositionChangedListener: ((Float, Float) -> Unit)? = null
+
+        fun isRunning(): Boolean = instanceRef?.get() != null
+
+        fun updateLivePosition(x: Float, y: Float) {
+            instanceRef?.get()?.applyPosition(x, y)
+        }
+
+        fun updateLiveSize(sizeDp: Int) {
+            instanceRef?.get()?.applySize(sizeDp)
+        }
+
+        fun updateLiveColor(color: Int) {
+            instanceRef?.get()?.applyColor(color)
+        }
 
         fun start(context: Context, packageName: String? = null, senderName: String? = null) {
             val intent = Intent(context, LedOverlayService::class.java).apply {
