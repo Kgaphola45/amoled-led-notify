@@ -837,9 +837,19 @@ class MainActivity : ComponentActivity() {
             previewLedDot.layoutParams = params
         }
 
-        val drawable = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(color)
+        val style = prefs.getString(LedOverlayService.KEY_VISUAL_STYLE, LedOverlayService.STYLE_DOT) ?: LedOverlayService.STYLE_DOT
+        val drawable = if (style == LedOverlayService.STYLE_RING) {
+            val strokePx = (3 * density).toInt().coerceIn(2, 6)
+            GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.TRANSPARENT)
+                setStroke(strokePx, color)
+            }
+        } else {
+            GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+            }
         }
         previewLedDot.background = drawable
     }
