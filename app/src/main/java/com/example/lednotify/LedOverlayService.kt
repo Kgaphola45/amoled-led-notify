@@ -138,13 +138,6 @@ class LedOverlayService : Service() {
             val covered = distance < threshold
             if (isProximityCovered != covered) {
                 isProximityCovered = covered
-                if (!covered && !isScreenOn) {
-                    // Pulled out of pocket with screen off: briefly wake for AOD
-                    val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    if (prefs.getBoolean(KEY_AOD_MODE, true) && shouldActivateAod()) {
-                        wakeScreenBrieflyForAod()
-                    }
-                }
                 evaluateLedVisibilityState()
             }
         }
@@ -158,11 +151,6 @@ class LedOverlayService : Service() {
                 Intent.ACTION_SCREEN_OFF -> {
                     isScreenOn = false
                     foregroundCheckHandler.removeCallbacksAndMessages(null)
-                    val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    val aodEnabled = prefs.getBoolean(KEY_AOD_MODE, true)
-                    if (aodEnabled && !isManualMode && shouldActivateAod()) {
-                        wakeScreenBrieflyForAod()
-                    }
                     evaluateLedVisibilityState()
                 }
                 Intent.ACTION_SCREEN_ON -> {
