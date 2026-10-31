@@ -30,6 +30,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var btnNotificationAccess: Button
     private lateinit var tvNotificationStatus: TextView
     private lateinit var btnSetColorsPerApp: Button
+    private lateinit var btnWhatsAppContactColors: Button
     private lateinit var framePreviewContainer: FrameLayout
     private lateinit var previewLedDot: View
     private lateinit var tvSizeLabel: TextView
@@ -72,10 +73,12 @@ class MainActivity : ComponentActivity() {
         setContentView(R.layout.activity_main)
 
         AppColorManager.initializeDefaultsIfNeeded(this)
+        ContactColorManager.initializeDefaultsIfNeeded(this)
 
         bindViews()
         setupPermissions()
         setupPerAppColorsButton()
+        setupWhatsAppContactColorsButton()
         setupSizeControl()
         setupColorPicker()
         setupPositionControls()
@@ -100,6 +103,7 @@ class MainActivity : ComponentActivity() {
         btnNotificationAccess = findViewById(R.id.btnNotificationAccess)
         tvNotificationStatus = findViewById(R.id.tvNotificationStatus)
         btnSetColorsPerApp = findViewById(R.id.btnSetColorsPerApp)
+        btnWhatsAppContactColors = findViewById(R.id.btnWhatsAppContactColors)
         framePreviewContainer = findViewById(R.id.framePreviewContainer)
         previewLedDot = findViewById(R.id.previewLedDot)
         tvSizeLabel = findViewById(R.id.tvSizeLabel)
@@ -146,6 +150,13 @@ class MainActivity : ComponentActivity() {
     private fun setupPerAppColorsButton() {
         btnSetColorsPerApp.setOnClickListener {
             val intent = Intent(this, AppColorSettingsActivity::class.java)
+            startActivity(intent)
+        }
+    }
+
+    private fun setupWhatsAppContactColorsButton() {
+        btnWhatsAppContactColors.setOnClickListener {
+            val intent = Intent(this, ContactColorActivity::class.java)
             startActivity(intent)
         }
     }
