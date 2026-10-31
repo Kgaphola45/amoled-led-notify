@@ -1012,6 +1012,15 @@ class LedOverlayService : Service() {
         const val PATTERN_HEARTBEAT = "heartbeat"
         const val PATTERN_SOLID = "solid"
 
+        // Hardware & system triggers
+        const val EXTRA_ALERT_PATTERNS = "alert_patterns"
+        const val KEY_BATTERY_INDICATOR_ENABLED = "battery_indicator_enabled"
+        const val KEY_LOW_BATTERY_WARNING = "low_battery_warning"
+        const val KEY_MISSED_CALL_ALERT = "missed_call_alert"
+        const val KEY_MISSED_CALL_COLOR = "missed_call_color"
+        const val KEY_SMS_ALERT = "sms_alert"
+        const val KEY_SMS_COLOR = "sms_color"
+
         const val CYCLE_INTERVAL_MS = 2500L
         const val PIXEL_SHIFT_INTERVAL_MS = 60000L
 
