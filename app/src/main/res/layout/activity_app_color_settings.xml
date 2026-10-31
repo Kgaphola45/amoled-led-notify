@@ -45,6 +45,13 @@
                 android:textColor="#AAAAAA"
                 android:textSize="12sp" />
         </LinearLayout>
+
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="8dp"
+            android:contentDescription="App Logo"
+            android:src="@drawable/ic_app_logo" />
     </LinearLayout>
 
     <!-- Filter Control Bar -->
