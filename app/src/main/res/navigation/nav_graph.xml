@@ -6,12 +6,12 @@
 
     <fragment
         android:id="@+id/nav_home"
-        android:name="com.example.lednotify.HomeFragment"
+        android:name="com.example.lednotify.HomeTabFragment"
         android:label="Home" />
 
     <fragment
         android:id="@+id/nav_style"
-        android:name="com.example.lednotify.StyleFragment"
+        android:name="com.example.lednotify.StyleTabFragment"
         android:label="Style" />
 
     <fragment
