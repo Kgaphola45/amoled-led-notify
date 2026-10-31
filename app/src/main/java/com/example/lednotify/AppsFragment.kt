@@ -17,8 +17,11 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.GridLayout
 import android.widget.Toast
-import android.widget.ImageView
+import android.view.Gravity
+import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -27,7 +30,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.lednotify.databinding.FragmentAppsBinding
-import com.google.android.material.materialswitch.MaterialSwitch
+import com.example.lednotify.databinding.ItemAppColorBinding
 import com.google.android.material.tabs.TabLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -300,33 +303,39 @@ class AppsFragment : Fragment() {
         private val onToggle: (AppInfoItem, Boolean) -> Unit
     ) : RecyclerView.Adapter<AppsAdapter.AppViewHolder>() {
 
-        inner class AppViewHolder(val itemBinding: ItemAppRowBinding) : RecyclerView.ViewHolder(itemBinding.root)
+        inner class AppViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val ivAppIcon: ImageView = view.findViewById(R.id.ivAppIcon)
+            val tvAppName: TextView = view.findViewById(R.id.tvAppName)
+            val tvPackageName: TextView = view.findViewById(R.id.tvPackageName)
+            val viewAppColorDot: View = view.findViewById(R.id.viewAppColorDot)
+            val switchAppEnabled: MaterialSwitch = view.findViewById(R.id.switchAppEnabled)
+            val layoutAppColorPick: View = view.findViewById(R.id.layoutAppColorPick)
+        }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): AppViewHolder {
-            val itemBinding = ItemAppRowBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-            return AppViewHolder(itemBinding)
+            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_app_row, parent, false)
+            return AppViewHolder(view)
         }
 
         override fun onBindViewHolder(holder: AppViewHolder, position: Int) {
             val item = list[position]
-            val b = holder.itemBinding
 
-            b.ivAppIcon.setImageDrawable(item.icon)
-            b.tvAppName.text = item.appName
-            b.tvPackageName.text = item.packageName
+            holder.ivAppIcon.setImageDrawable(item.icon)
+            holder.tvAppName.text = item.appName
+            holder.tvPackageName.text = item.packageName
 
-            b.viewAppColorDot.background = GradientDrawable().apply {
+            holder.viewAppColorDot.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(item.color)
             }
 
-            b.switchAppEnabled.setOnCheckedChangeListener(null)
-            b.switchAppEnabled.isChecked = item.isEnabled
-            b.switchAppEnabled.setOnCheckedChangeListener { _, isChecked ->
+            holder.switchAppEnabled.setOnCheckedChangeListener(null)
+            holder.switchAppEnabled.isChecked = item.isEnabled
+            holder.switchAppEnabled.setOnCheckedChangeListener { _, isChecked ->
                 onToggle(item, isChecked)
             }
 
-            b.layoutAppColorPick.setOnClickListener {
+            holder.layoutAppColorPick.setOnClickListener {
                 onItemClick(item)
             }
 
@@ -418,31 +427,34 @@ class AppsFragment : Fragment() {
         private val onSelect: (Int) -> Unit
     ) : RecyclerView.Adapter<ContactColorsPickerAdapter.ColorViewHolder>() {
 
-        inner class ColorViewHolder(val itemBinding: ItemColorCircleBinding) : RecyclerView.ViewHolder(itemBinding.root)
+        inner class ColorViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val viewColorDot: View = view.findViewById(R.id.viewColorDot)
+            val viewSelectionRing: View = view.findViewById(R.id.viewSelectionRing)
+        }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ColorViewHolder {
-            val itemBinding = ItemColorCircleBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-            return ColorViewHolder(itemBinding)
+            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_color_circle, parent, false)
+            return ColorViewHolder(view)
         }
 
         override fun onBindViewHolder(holder: ColorViewHolder, position: Int) {
             val color = colors[position]
             val density = holder.itemView.resources.displayMetrics.density
 
-            holder.itemBinding.viewColorDot.background = GradientDrawable().apply {
+            holder.viewColorDot.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(color)
             }
 
             if (color == selected) {
-                holder.itemBinding.viewSelectionRing.visibility = View.VISIBLE
-                holder.itemBinding.viewSelectionRing.background = GradientDrawable().apply {
+                holder.viewSelectionRing.visibility = View.VISIBLE
+                holder.viewSelectionRing.background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     setColor(Color.TRANSPARENT)
                     setStroke((3 * density).toInt(), Color.WHITE)
                 }
             } else {
-                holder.itemBinding.viewSelectionRing.visibility = View.GONE
+                holder.viewSelectionRing.visibility = View.GONE
             }
 
             holder.itemView.setOnClickListener {
@@ -460,26 +472,30 @@ class AppsFragment : Fragment() {
         private val onDeleteClick: (ContactColorItem) -> Unit
     ) : RecyclerView.Adapter<SavedContactsAdapter.ContactViewHolder>() {
 
-        inner class ContactViewHolder(val itemBinding: ItemSavedContactBinding) : RecyclerView.ViewHolder(itemBinding.root)
+        inner class ContactViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val tvContactName: TextView = view.findViewById(R.id.tvContactName)
+            val tvContactSpeed: TextView = view.findViewById(R.id.tvContactSpeed)
+            val viewContactColorDot: View = view.findViewById(R.id.viewContactColorDot)
+            val btnDeleteContact: ImageButton = view.findViewById(R.id.btnDeleteContact)
+        }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ContactViewHolder {
-            val itemBinding = ItemSavedContactBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-            return ContactViewHolder(itemBinding)
+            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_saved_contact, parent, false)
+            return ContactViewHolder(view)
         }
 
         override fun onBindViewHolder(holder: ContactViewHolder, position: Int) {
             val item = list[position]
-            val b = holder.itemBinding
 
-            b.tvContactName.text = item.contactName
-            b.tvContactSpeed.text = "Blink: ${item.speedMs}ms"
+            holder.tvContactName.text = item.contactName
+            holder.tvContactSpeed.text = "Blink: ${item.speedMs}ms"
 
-            b.viewContactColorDot.background = GradientDrawable().apply {
+            holder.viewContactColorDot.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(item.color)
             }
 
-            b.btnDeleteContact.setOnClickListener {
+            holder.btnDeleteContact.setOnClickListener {
                 onDeleteClick(item)
             }
         }
