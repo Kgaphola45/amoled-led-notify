@@ -1,6 +1,8 @@
 package com.example.lednotify
 
+import android.animation.Keyframe
 import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
 import android.annotation.SuppressLint
 import android.app.KeyguardManager
 import android.app.Notification
@@ -746,11 +748,22 @@ class LedOverlayService : Service() {
 
     fun applyColor(color: Int) {
         activeColor = color
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val style = prefs.getString(KEY_VISUAL_STYLE, STYLE_DOT) ?: STYLE_DOT
+        val density = resources.displayMetrics.density
 
-        // Pure solid dot: crisp solid color oval, no glow or halo
-        val dotDrawable = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(color)
+        val dotDrawable = if (style == STYLE_RING) {
+            val strokePx = (3 * density).toInt().coerceIn(2, 8)
+            GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.TRANSPARENT)
+                setStroke(strokePx, color)
+            }
+        } else {
+            GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+            }
         }
         ledDot?.background = dotDrawable
     }
@@ -769,15 +782,51 @@ class LedOverlayService : Service() {
         applyCurrentPositionWithShift()
     }
 
-    private fun startBlinkAnimation(speedMs: Int = activeSpeedMs) {
+    fun startBlinkAnimation(speedMs: Int = activeSpeedMs) {
         ledDot?.let { dot ->
             dotAnimator?.cancel()
-            val durationMs = speedMs.coerceIn(50, 3000).toLong()
-            dotAnimator = ObjectAnimator.ofFloat(dot, View.ALPHA, 1f, 0.05f).apply {
-                duration = durationMs
-                repeatCount = ObjectAnimator.INFINITE
-                repeatMode = ObjectAnimator.REVERSE
-                start()
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val pattern = prefs.getString(KEY_ANIMATION_PATTERN, PATTERN_BLINK) ?: PATTERN_BLINK
+
+            when (pattern) {
+                PATTERN_SOLID -> {
+                    dot.alpha = 1f
+                    dotAnimator = null
+                }
+                PATTERN_PULSE -> {
+                    val durationMs = maxOf(800L, speedMs.toLong() * 2)
+                    dotAnimator = ObjectAnimator.ofFloat(dot, View.ALPHA, 0.15f, 1f).apply {
+                        duration = durationMs
+                        interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+                        repeatCount = ObjectAnimator.INFINITE
+                        repeatMode = ObjectAnimator.REVERSE
+                        start()
+                    }
+                }
+                PATTERN_HEARTBEAT -> {
+                    val kf0 = Keyframe.ofFloat(0.00f, 0.05f)
+                    val kf1 = Keyframe.ofFloat(0.12f, 1.00f)
+                    val kf2 = Keyframe.ofFloat(0.24f, 0.05f)
+                    val kf3 = Keyframe.ofFloat(0.36f, 1.00f)
+                    val kf4 = Keyframe.ofFloat(0.50f, 0.05f)
+                    val kf5 = Keyframe.ofFloat(1.00f, 0.05f)
+                    val pvh = PropertyValuesHolder.ofKeyframe(View.ALPHA, kf0, kf1, kf2, kf3, kf4, kf5)
+                    val durationMs = maxOf(1200L, speedMs.toLong() * 2)
+                    dotAnimator = ObjectAnimator.ofPropertyValuesHolder(dot, pvh).apply {
+                        duration = durationMs
+                        repeatCount = ObjectAnimator.INFINITE
+                        start()
+                    }
+                }
+                else -> { // PATTERN_BLINK
+                    val durationMs = speedMs.coerceIn(50, 3000).toLong()
+                    dotAnimator = ObjectAnimator.ofFloat(dot, View.ALPHA, 1f, 0.05f).apply {
+                        duration = durationMs
+                        repeatCount = ObjectAnimator.INFINITE
+                        repeatMode = ObjectAnimator.REVERSE
+                        start()
+                    }
+                }
             }
         }
     }
