@@ -75,6 +75,28 @@ class LedOverlayService : Service() {
     private var proximitySensor: Sensor? = null
     private var isProximityCovered = false
 
+    // AOD (Always On Display) Screen-Off Mode
+    private var aodView: View? = null
+    private var aodLedDot: View? = null
+    private var aodInfoContainer: View? = null
+    private var tvAodTime: TextView? = null
+    private var tvAodDate: TextView? = null
+    private var tvAodBatteryIcon: TextView? = null
+    private var tvAodBatteryText: TextView? = null
+    private var tvAodAlertText: TextView? = null
+    private var aodAnimator: ObjectAnimator? = null
+    private var aodLayoutParams: WindowManager.LayoutParams? = null
+    private var isForcedAod = false
+    private val aodClockHandler = Handler(Looper.getMainLooper())
+    private val aodClockRunnable = object : Runnable {
+        override fun run() {
+            updateAodClockAndBattery()
+            val now = System.currentTimeMillis()
+            val delayMs = 60000L - (now % 60000L) + 50L
+            aodClockHandler.postDelayed(this, delayMs)
+        }
+    }
+
     // Battery monitoring & hardware triggers
     private var currentBatteryPct = 100
     private var isBatteryCharging = false
@@ -123,13 +145,23 @@ class LedOverlayService : Service() {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     isScreenOn = false
+                    val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    val aodEnabled = prefs.getBoolean(KEY_AOD_MODE, true)
+                    if (aodEnabled && !isManualMode && shouldActivateAod()) {
+                        wakeScreenBrieflyForAod()
+                    }
                     evaluateLedVisibilityState()
                 }
                 Intent.ACTION_SCREEN_ON -> {
                     isScreenOn = true
+                    isForcedAod = false
+                    removeAodOverlay()
                     evaluateLedVisibilityState()
                 }
                 Intent.ACTION_USER_PRESENT -> {
+                    isScreenOn = true
+                    isForcedAod = false
+                    removeAodOverlay()
                     evaluateLedVisibilityState()
                 }
                 Intent.ACTION_POWER_CONNECTED -> {
@@ -162,6 +194,33 @@ class LedOverlayService : Service() {
         }
     }
 
+    private fun wakeScreenBrieflyForAod() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            @Suppress("DEPRECATION")
+            val wl = pm.newWakeLock(
+                PowerManager.SCREEN_DIM_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "lednotify:aod_wake_dim"
+            )
+            wl.acquire(1500)
+        } catch (e: Exception) {
+            // ignore
+        }
+    }
+
+    private fun shouldActivateAod(): Boolean {
+        if (!LedTileService.isMasterEnabled(this)) return false
+        if (isWithinDndHours()) return false
+        if (isProximityCovered) return false
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val batteryCutoff = prefs.getInt(KEY_LOW_BATTERY_CUTOFF, 15)
+        if (!isBatteryCharging && batteryCutoff > 0 && currentBatteryPct in 0..batteryCutoff) return false
+        val batteryIndicatorEnabled = prefs.getBoolean(KEY_BATTERY_INDICATOR_ENABLED, true)
+        val hasAlerts = activeAlertColors.isNotEmpty() || !currentPackageName.isNullOrBlank()
+        val hasBattery = batteryIndicatorEnabled && (isBatteryCharging || currentBatteryPct in 1..15)
+        return hasAlerts || hasBattery || isForcedAod
+    }
+
     private val cycleRunnable = object : Runnable {
         override fun run() {
             val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -192,12 +251,19 @@ class LedOverlayService : Service() {
         override fun run() {
             val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val burnInEnabled = prefs.getBoolean(KEY_BURN_IN_PROTECTION, true)
-            if (burnInEnabled && overlayView != null && layoutParams != null) {
+            if (burnInEnabled) {
                 currentShiftIndex = (currentShiftIndex + 1) % pixelShiftOffsets.size
                 val (dx, dy) = pixelShiftOffsets[currentShiftIndex]
                 currentShiftX = dx
                 currentShiftY = dy
-                applyCurrentPositionWithShift()
+                if (overlayView != null && layoutParams != null) {
+                    applyCurrentPositionWithShift()
+                }
+                if (aodView != null) {
+                    aodInfoContainer?.translationX = dx * 3f
+                    aodInfoContainer?.translationY = dy * 3f
+                    applyAodDotStyle()
+                }
             }
             pixelShiftHandler.postDelayed(this, PIXEL_SHIFT_INTERVAL_MS)
         }
