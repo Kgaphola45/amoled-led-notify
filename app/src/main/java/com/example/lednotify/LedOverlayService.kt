@@ -29,6 +29,7 @@ class LedOverlayService : Service() {
     private var ledDot: View? = null
     private var animator: ObjectAnimator? = null
     private var currentPackageName: String? = null
+    private var currentSenderName: String? = null
     private var layoutParams: WindowManager.LayoutParams? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -47,6 +48,9 @@ class LedOverlayService : Service() {
 
         if (intent?.hasExtra(EXTRA_PACKAGE_NAME) == true) {
             currentPackageName = intent.getStringExtra(EXTRA_PACKAGE_NAME)
+        }
+        if (intent?.hasExtra(EXTRA_SENDER_NAME) == true) {
+            currentSenderName = intent.getStringExtra(EXTRA_SENDER_NAME)
         }
 
         startAsForeground()
@@ -124,22 +128,30 @@ class LedOverlayService : Service() {
         }
 
         // Color loading priority:
-        // 1. Check app_colors prefs using packageName extra
-        // 2. If not found, use default_color from app_colors
-        // 3. If still not found, use global color from led_prefs
+        // 1. Check contact_colors prefs using senderName extra (e.g. WhatsApp contact)
+        // 2. Check app_colors prefs using packageName extra
+        // 3. Use default_color from app_colors
+        // 4. Fallback to global color from led_prefs
         val ledPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val appPrefs = getSharedPreferences(AppColorManager.PREFS_NAME, Context.MODE_PRIVATE)
 
         val globalColor = ledPrefs.getInt(KEY_COLOR, 0xFF00FF00.toInt())
         val defaultColor = appPrefs.getInt(AppColorManager.KEY_DEFAULT_COLOR, globalColor)
 
-        val resolvedColor = if (currentPackageName != null && appPrefs.contains(currentPackageName)) {
-            appPrefs.getInt(currentPackageName, defaultColor)
-        } else if (appPrefs.contains(AppColorManager.KEY_DEFAULT_COLOR)) {
-            defaultColor
+        val contactColor = if (!currentSenderName.isNullOrBlank()) {
+            ContactColorManager.getColorForContact(this, currentSenderName)
         } else {
-            globalColor
+            null
         }
+
+        val resolvedColor = contactColor
+            ?: (if (currentPackageName != null && appPrefs.contains(currentPackageName)) {
+                appPrefs.getInt(currentPackageName, defaultColor)
+            } else if (appPrefs.contains(AppColorManager.KEY_DEFAULT_COLOR)) {
+                defaultColor
+            } else {
+                globalColor
+            })
 
         val sizeDp = ledPrefs.getInt(KEY_SIZE, 22).coerceIn(10, 100)
         val density = resources.displayMetrics.density
@@ -320,6 +332,7 @@ class LedOverlayService : Service() {
         const val ACTION_START = "com.example.lednotify.ACTION_START"
         const val ACTION_STOP = "com.example.lednotify.ACTION_STOP"
         const val EXTRA_PACKAGE_NAME = "packageName"
+        const val EXTRA_SENDER_NAME = "senderName"
 
         const val PREFS_NAME = "led_prefs"
         const val KEY_SIZE = "size"
@@ -330,11 +343,14 @@ class LedOverlayService : Service() {
         private const val CHANNEL_ID = "led_overlay_channel"
         private const val NOTIFICATION_ID = 1001
 
-        fun start(context: Context, packageName: String? = null) {
+        fun start(context: Context, packageName: String? = null, senderName: String? = null) {
             val intent = Intent(context, LedOverlayService::class.java).apply {
                 action = ACTION_START_LED
                 if (packageName != null) {
                     putExtra(EXTRA_PACKAGE_NAME, packageName)
+                }
+                if (senderName != null) {
+                    putExtra(EXTRA_SENDER_NAME, senderName)
                 }
             }
             ContextCompat.startForegroundService(context, intent)

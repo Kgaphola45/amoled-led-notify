@@ -38,6 +38,12 @@
             android:label="Per-App LED Colors"
             android:theme="@style/Theme.LedNotify" />
 
+        <activity
+            android:name=".ContactColorActivity"
+            android:exported="false"
+            android:label="WhatsApp Contact Colors"
+            android:theme="@style/Theme.LedNotify" />
+
         <service
             android:name=".LedOverlayService"
             android:exported="false"

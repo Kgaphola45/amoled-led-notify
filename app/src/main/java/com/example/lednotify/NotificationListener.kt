@@ -26,10 +26,38 @@ class NotificationListener : NotificationListenerService() {
             return
         }
 
-        // Start LedOverlayService with action START_LED and pass packageName
+        var contactName: String? = null
+
+        // WhatsApp per-contact extraction
+        if (pkgName == "com.whatsapp" || pkgName == "com.whatsapp.w4b") {
+            val extras = sbn.notification.extras
+            if (extras != null) {
+                val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim()
+                val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim()
+                val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()?.trim()
+
+                // Detect group chat: if subText is present or text has "Sender: message" format
+                val isGroup = !subText.isNullOrEmpty() || (text != null && text.contains(":") && title != null && !title.contains(":"))
+                if (isGroup && text != null && text.contains(":")) {
+                    val extracted = text.substringBefore(":").trim()
+                    if (extracted.isNotEmpty()) {
+                        contactName = extracted
+                    }
+                }
+
+                if (contactName.isNullOrEmpty() && !title.isNullOrEmpty()) {
+                    contactName = title
+                }
+            }
+        }
+
+        // Start LedOverlayService with action START_LED and pass packageName (+ senderName if WhatsApp)
         val intent = Intent(this, LedOverlayService::class.java).apply {
             action = LedOverlayService.ACTION_START_LED
             putExtra(LedOverlayService.EXTRA_PACKAGE_NAME, pkgName)
+            if (!contactName.isNullOrBlank()) {
+                putExtra(LedOverlayService.EXTRA_SENDER_NAME, contactName.trim())
+            }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
