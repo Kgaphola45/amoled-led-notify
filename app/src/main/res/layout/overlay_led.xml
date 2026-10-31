@@ -15,14 +15,7 @@
         android:layout_gravity="center"
         android:visibility="gone" />
 
-    <!-- Superbright Luminous Glow Bloom -->
-    <View
-        android:id="@+id/ledGlow"
-        android:layout_width="8dp"
-        android:layout_height="8dp"
-        android:layout_gravity="center" />
-
-    <!-- Main LED Diode Dot -->
+    <!-- Pure Solid LED Dot (No glow, crisp solid color) -->
     <View
         android:id="@+id/ledDot"
         android:layout_width="2dp"

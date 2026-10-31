@@ -29,14 +29,13 @@ class LedOverlayService : Service() {
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
     private var ledDot: View? = null
-    private var ledGlow: View? = null
     private var dragRing: View? = null
     private var dotAnimator: ObjectAnimator? = null
-    private var glowAnimator: ObjectAnimator? = null
     private var currentPackageName: String? = null
     private var currentSenderName: String? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var activeColor: Int = 0xFF00FF00.toInt()
+    private var activeSpeedMs: Int = ContactColorManager.DEFAULT_BLINK_SPEED_MS
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -53,17 +52,62 @@ class LedOverlayService : Service() {
             return START_NOT_STICKY
         }
 
-        if (intent?.hasExtra(EXTRA_PACKAGE_NAME) == true) {
-            currentPackageName = intent.getStringExtra(EXTRA_PACKAGE_NAME)
-        }
-        if (intent?.hasExtra(EXTRA_SENDER_NAME) == true) {
-            currentSenderName = intent.getStringExtra(EXTRA_SENDER_NAME)
+        if (intent != null) {
+            if (intent.hasExtra(EXTRA_PACKAGE_NAME)) {
+                currentPackageName = intent.getStringExtra(EXTRA_PACKAGE_NAME)
+                currentSenderName = if (intent.hasExtra(EXTRA_SENDER_NAME)) {
+                    intent.getStringExtra(EXTRA_SENDER_NAME)
+                } else {
+                    null
+                }
+            } else if (intent.hasExtra(EXTRA_SENDER_NAME)) {
+                currentSenderName = intent.getStringExtra(EXTRA_SENDER_NAME)
+            }
         }
 
+        resolveActiveColorAndSpeed()
         startAsForeground()
         showOverlay()
 
         return START_NOT_STICKY
+    }
+
+    private fun resolveActiveColorAndSpeed() {
+        val ledPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val appPrefs = getSharedPreferences(AppColorManager.PREFS_NAME, Context.MODE_PRIVATE)
+
+        val globalColor = ledPrefs.getInt(KEY_COLOR, 0xFF00FF00.toInt())
+        val defaultColor = appPrefs.getInt(AppColorManager.KEY_DEFAULT_COLOR, globalColor)
+
+        // 1. Check contact-specific color & blink speed first (WhatsApp per-contact)
+        val contactColor = if (!currentSenderName.isNullOrBlank()) {
+            ContactColorManager.getColorForContact(this, currentSenderName)
+        } else {
+            null
+        }
+
+        if (contactColor != null) {
+            activeColor = contactColor
+            activeSpeedMs = ContactColorManager.getSpeedForContact(this, currentSenderName)
+        } else if (!currentPackageName.isNullOrBlank() && appPrefs.contains(currentPackageName)) {
+            // 2. Per-app color
+            activeColor = appPrefs.getInt(currentPackageName, defaultColor)
+            activeSpeedMs = ContactColorManager.DEFAULT_BLINK_SPEED_MS
+        } else if (appPrefs.contains(AppColorManager.KEY_DEFAULT_COLOR)) {
+            // 3. Fallback default app color
+            activeColor = defaultColor
+            activeSpeedMs = ContactColorManager.DEFAULT_BLINK_SPEED_MS
+        } else {
+            // 4. Fallback to latest persisted color or global color
+            activeColor = ledPrefs.getInt(KEY_LATEST_COLOR, globalColor)
+            activeSpeedMs = ledPrefs.getInt(KEY_LATEST_SPEED, ContactColorManager.DEFAULT_BLINK_SPEED_MS)
+        }
+
+        // Persist the latest notification's color and speed so dot keeps it until the next message
+        ledPrefs.edit()
+            .putInt(KEY_LATEST_COLOR, activeColor)
+            .putInt(KEY_LATEST_SPEED, activeSpeedMs)
+            .apply()
     }
 
     private fun createNotificationChannel() {
@@ -101,10 +145,16 @@ class LedOverlayService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val statusText = when {
+            !currentSenderName.isNullOrBlank() -> "Message from $currentSenderName"
+            !currentPackageName.isNullOrBlank() -> "Notification received"
+            else -> "LED dot active"
+        }
+
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("AMOLED LED Notify")
-            .setContentText("LED dot active")
+            .setContentText(statusText)
             .setContentIntent(contentPendingIntent)
             .addAction(0, "Stop LED", stopPendingIntent)
             .setOngoing(true)
@@ -137,31 +187,12 @@ class LedOverlayService : Service() {
         }
 
         val ledPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val appPrefs = getSharedPreferences(AppColorManager.PREFS_NAME, Context.MODE_PRIVATE)
-
-        val globalColor = ledPrefs.getInt(KEY_COLOR, 0xFF00FF00.toInt())
-        val defaultColor = appPrefs.getInt(AppColorManager.KEY_DEFAULT_COLOR, globalColor)
-
-        val contactColor = if (!currentSenderName.isNullOrBlank()) {
-            ContactColorManager.getColorForContact(this, currentSenderName)
-        } else {
-            null
-        }
-
-        activeColor = contactColor
-            ?: (if (currentPackageName != null && appPrefs.contains(currentPackageName)) {
-                appPrefs.getInt(currentPackageName, defaultColor)
-            } else if (appPrefs.contains(AppColorManager.KEY_DEFAULT_COLOR)) {
-                defaultColor
-            } else {
-                globalColor
-            })
-
         val sizeDp = ledPrefs.getInt(KEY_SIZE, 2).coerceIn(2, 100)
 
-        // If overlay already exists, just update live dot and glow
+        // If overlay already exists, immediately apply the latest color, blink rate, and size live!
         if (overlayView != null && ledDot != null) {
             applyColor(activeColor)
+            applyBlinkSpeed(activeSpeedMs)
             applySize(sizeDp)
             return
         }
@@ -188,7 +219,7 @@ class LedOverlayService : Service() {
         )
         params.gravity = Gravity.TOP or Gravity.START
 
-        // Force maximum display brightness for SUPERBRIGHT LED on AMOLED
+        // Force maximum display brightness for crisp solid dot on AMOLED
         params.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
         params.buttonBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
 
@@ -220,19 +251,17 @@ class LedOverlayService : Service() {
         val inflater = LayoutInflater.from(this)
         val view = inflater.inflate(R.layout.overlay_led, null)
         val dot = view.findViewById<View>(R.id.ledDot)
-        val glow = view.findViewById<View>(R.id.ledGlow)
         val ring = view.findViewById<View>(R.id.dragRing)
 
         ledDot = dot
-        ledGlow = glow
         dragRing = ring
         overlayView = view
 
-        // Apply visual styling (dot + superbright glow + drag ring)
+        // Apply visual styling (pure solid dot + drag guide ring)
         applySize(sizeDp)
         applyColor(activeColor)
 
-        // Setup drag ring drawable
+        // Setup drag feedback ring drawable (shown only while touching/moving)
         val ringDrawable = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(Color.argb(35, 255, 255, 255))
@@ -240,10 +269,10 @@ class LedOverlayService : Service() {
         }
         ring.background = ringDrawable
 
-        // Blink animation: animates both dot and outer glow for authentic LED pulse
-        startBlinkAnimation()
+        // Start blinking at the active speed (custom per-contact or default)
+        startBlinkAnimation(activeSpeedMs)
 
-        // Draggable overlay: touch anywhere in the padded overlay to move smoothly
+        // Draggable overlay: touch anywhere in the padded overlay to move smoothly live
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
@@ -260,7 +289,6 @@ class LedOverlayService : Service() {
                     dragRing?.visibility = View.VISIBLE
                     pauseBlinkAnimation()
                     dot.alpha = 1f
-                    glow.alpha = 1f
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -305,20 +333,12 @@ class LedOverlayService : Service() {
     fun applySize(sizeDp: Int) {
         val density = resources.displayMetrics.density
         val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
-        val glowPx = sizePx + (8 * density).toInt()
 
         ledDot?.let { dot ->
             val lp = dot.layoutParams
             lp.width = sizePx
             lp.height = sizePx
             dot.layoutParams = lp
-        }
-
-        ledGlow?.let { glow ->
-            val lp = glow.layoutParams
-            lp.width = glowPx
-            lp.height = glowPx
-            glow.layoutParams = lp
         }
 
         if (overlayView != null && layoutParams != null) {
@@ -333,25 +353,17 @@ class LedOverlayService : Service() {
     fun applyColor(color: Int) {
         activeColor = color
 
-        // Core dot: intense solid color
+        // Pure solid dot: crisp solid color oval, no glow or halo
         val dotDrawable = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(color)
         }
         ledDot?.background = dotDrawable
+    }
 
-        // Outer glow: luminous translucent bloom
-        val glowAlpha = Color.argb(
-            90,
-            Color.red(color),
-            Color.green(color),
-            Color.blue(color)
-        )
-        val glowDrawable = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(glowAlpha)
-        }
-        ledGlow?.background = glowDrawable
+    fun applyBlinkSpeed(speedMs: Int) {
+        activeSpeedMs = speedMs.coerceIn(50, 3000)
+        startBlinkAnimation(activeSpeedMs)
     }
 
     fun applyPosition(x: Float, y: Float) {
@@ -365,20 +377,12 @@ class LedOverlayService : Service() {
         }
     }
 
-    private fun startBlinkAnimation() {
+    private fun startBlinkAnimation(speedMs: Int = activeSpeedMs) {
         ledDot?.let { dot ->
             dotAnimator?.cancel()
+            val durationMs = speedMs.coerceIn(50, 3000).toLong()
             dotAnimator = ObjectAnimator.ofFloat(dot, View.ALPHA, 1f, 0.05f).apply {
-                duration = 600L
-                repeatCount = ObjectAnimator.INFINITE
-                repeatMode = ObjectAnimator.REVERSE
-                start()
-            }
-        }
-        ledGlow?.let { glow ->
-            glowAnimator?.cancel()
-            glowAnimator = ObjectAnimator.ofFloat(glow, View.ALPHA, 1f, 0.05f).apply {
-                duration = 600L
+                duration = durationMs
                 repeatCount = ObjectAnimator.INFINITE
                 repeatMode = ObjectAnimator.REVERSE
                 start()
@@ -388,23 +392,17 @@ class LedOverlayService : Service() {
 
     private fun pauseBlinkAnimation() {
         dotAnimator?.pause()
-        glowAnimator?.pause()
     }
 
     private fun resumeBlinkAnimation() {
         if (dotAnimator?.isPaused == true) {
             dotAnimator?.resume()
         }
-        if (glowAnimator?.isPaused == true) {
-            glowAnimator?.resume()
-        }
     }
 
     private fun removeOverlay() {
         dotAnimator?.cancel()
-        glowAnimator?.cancel()
         dotAnimator = null
-        glowAnimator = null
 
         overlayView?.let { view ->
             try {
@@ -417,7 +415,6 @@ class LedOverlayService : Service() {
         }
         overlayView = null
         ledDot = null
-        ledGlow = null
         dragRing = null
         layoutParams = null
     }
@@ -441,6 +438,8 @@ class LedOverlayService : Service() {
         const val KEY_COLOR = "color"
         const val KEY_POS_X = "posX"
         const val KEY_POS_Y = "posY"
+        const val KEY_LATEST_COLOR = "latest_color"
+        const val KEY_LATEST_SPEED = "latest_speed"
 
         private const val CHANNEL_ID = "led_overlay_channel"
         private const val NOTIFICATION_ID = 1001
@@ -461,6 +460,10 @@ class LedOverlayService : Service() {
 
         fun updateLiveColor(color: Int) {
             instanceRef?.get()?.applyColor(color)
+        }
+
+        fun updateLiveBlinkSpeed(speedMs: Int) {
+            instanceRef?.get()?.applyBlinkSpeed(speedMs)
         }
 
         fun start(context: Context, packageName: String? = null, senderName: String? = null) {

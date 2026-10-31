@@ -28,21 +28,43 @@ import androidx.recyclerview.widget.RecyclerView
 
 data class ContactColorItem(
     val contactName: String,
-    val color: Int
+    val color: Int,
+    val speedMs: Int = 600
+)
+
+data class BlinkSpeedOption(
+    val label: String,
+    val speedMs: Int
 )
 
 object ContactColorManager {
     const val PREFS_NAME = "contact_colors"
+    const val PREFS_SPEEDS = "contact_speeds"
+    const val DEFAULT_BLINK_SPEED_MS = 600
     private const val KEY_INITIALIZED = "is_initialized"
+
+    val SPEED_OPTIONS = listOf(
+        BlinkSpeedOption("⚡ 150ms", 150),
+        BlinkSpeedOption("⚡ 250ms", 250),
+        BlinkSpeedOption("⚡ 400ms", 400),
+        BlinkSpeedOption("💡 600ms", 600),
+        BlinkSpeedOption("🌙 900ms", 900)
+    )
 
     fun initializeDefaultsIfNeeded(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val speedPrefs = context.getSharedPreferences(PREFS_SPEEDS, Context.MODE_PRIVATE)
         if (!prefs.getBoolean(KEY_INITIALIZED, false)) {
             prefs.edit()
                 // Default entries requested: Mom = #FF69B4 (pink), Boss = #FF0000 (red)
                 .putInt("Mom", 0xFFFF69B4.toInt())
                 .putInt("Boss", 0xFFFF0000.toInt())
                 .putBoolean(KEY_INITIALIZED, true)
+                .apply()
+
+            speedPrefs.edit()
+                .putInt("Mom", 600)
+                .putInt("Boss", 200) // Rapid blinking for Boss by default
                 .apply()
         }
     }
@@ -54,21 +76,21 @@ object ContactColorManager {
 
         val cleanName = contactName.trim()
 
-        // Exact match first
+        // 1. Exact match
         if (prefs.contains(cleanName)) {
             return prefs.getInt(cleanName, 0)
         }
 
         val allEntries = prefs.all
 
-        // Case-insensitive exact match
+        // 2. Case-insensitive match
         for ((key, value) in allEntries) {
             if (key != KEY_INITIALIZED && value is Int && key.equals(cleanName, ignoreCase = true)) {
                 return value
             }
         }
 
-        // Substring / partial match fallback (e.g. "John" matches "John Doe" or vice versa)
+        // 3. Substring match fallback (e.g. "John" matches "John Doe")
         for ((key, value) in allEntries) {
             if (key != KEY_INITIALIZED && value is Int) {
                 if (cleanName.contains(key, ignoreCase = true) || key.contains(cleanName, ignoreCase = true)) {
@@ -80,25 +102,59 @@ object ContactColorManager {
         return null
     }
 
-    fun saveContactColor(context: Context, contactName: String, color: Int) {
+    fun getSpeedForContact(context: Context, contactName: String?): Int {
+        if (contactName.isNullOrBlank()) return DEFAULT_BLINK_SPEED_MS
+        initializeDefaultsIfNeeded(context)
+        val speedPrefs = context.getSharedPreferences(PREFS_SPEEDS, Context.MODE_PRIVATE)
+
+        val cleanName = contactName.trim()
+
+        if (speedPrefs.contains(cleanName)) {
+            return speedPrefs.getInt(cleanName, DEFAULT_BLINK_SPEED_MS)
+        }
+
+        val allEntries = speedPrefs.all
+        for ((key, value) in allEntries) {
+            if (value is Int && key.equals(cleanName, ignoreCase = true)) {
+                return value
+            }
+        }
+        for ((key, value) in allEntries) {
+            if (value is Int) {
+                if (cleanName.contains(key, ignoreCase = true) || key.contains(cleanName, ignoreCase = true)) {
+                    return value
+                }
+            }
+        }
+
+        return DEFAULT_BLINK_SPEED_MS
+    }
+
+    fun saveContactColor(context: Context, contactName: String, color: Int, speedMs: Int = DEFAULT_BLINK_SPEED_MS) {
         val cleanName = contactName.trim()
         if (cleanName.isBlank()) return
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val speedPrefs = context.getSharedPreferences(PREFS_SPEEDS, Context.MODE_PRIVATE)
         prefs.edit().putInt(cleanName, color).apply()
+        speedPrefs.edit().putInt(cleanName, speedMs).apply()
     }
 
     fun deleteContactColor(context: Context, contactName: String) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val speedPrefs = context.getSharedPreferences(PREFS_SPEEDS, Context.MODE_PRIVATE)
         prefs.edit().remove(contactName).apply()
+        speedPrefs.edit().remove(contactName).apply()
     }
 
     fun getAllContactColors(context: Context): List<ContactColorItem> {
         initializeDefaultsIfNeeded(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val speedPrefs = context.getSharedPreferences(PREFS_SPEEDS, Context.MODE_PRIVATE)
         val list = mutableListOf<ContactColorItem>()
         for ((key, value) in prefs.all) {
             if (key != KEY_INITIALIZED && value is Int) {
-                list.add(ContactColorItem(key, value))
+                val speed = speedPrefs.getInt(key, DEFAULT_BLINK_SPEED_MS)
+                list.add(ContactColorItem(key, value, speed))
             }
         }
         return list.sortedBy { it.contactName.lowercase() }
@@ -109,13 +165,16 @@ class ContactColorActivity : ComponentActivity() {
 
     private lateinit var etContactName: EditText
     private lateinit var layoutContactColors: LinearLayout
+    private lateinit var layoutBlinkSpeeds: LinearLayout
     private lateinit var btnSaveContact: Button
     private lateinit var tvEmptyContacts: TextView
     private lateinit var rvContactColors: RecyclerView
     private lateinit var adapter: ContactColorsAdapter
 
     private var selectedColor: Int = 0xFFFF69B4.toInt() // Pink default for contacts
+    private var selectedSpeedMs: Int = ContactColorManager.DEFAULT_BLINK_SPEED_MS
     private val colorViews = mutableListOf<View>()
+    private val speedViews = mutableListOf<TextView>()
 
     private val pickContactLauncher = registerForActivityResult(
         ActivityResultContracts.PickContact()
@@ -154,7 +213,6 @@ class ContactColorActivity : ComponentActivity() {
         if (granted) {
             pickContactLauncher.launch(null)
         } else {
-            // PickContact can still succeed even if general permission is not granted
             pickContactLauncher.launch(null)
         }
     }
@@ -212,7 +270,7 @@ class ContactColorActivity : ComponentActivity() {
         }
 
         val tvSubtitle = TextView(this).apply {
-            text = "Set custom LED colors for WhatsApp contacts"
+            text = "Set custom LED colors & blink speeds per contact"
             setTextColor(Color.parseColor("#AAAAAA"))
             textSize = 12f
         }
@@ -317,11 +375,12 @@ class ContactColorActivity : ComponentActivity() {
             ).apply {
                 topMargin = (6 * density).toInt()
             }
-            text = "Tap 'Pick Contact' to choose from your phone contacts, or type the exact name/number manually."
+            text = "Tap 'Pick Contact' to choose from your phone contacts, or type the name/number manually."
             setTextColor(Color.parseColor("#AAAAAA"))
             textSize = 12f
         }
 
+        // Color Picker Label
         val tvColorLabel = TextView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -329,7 +388,7 @@ class ContactColorActivity : ComponentActivity() {
             ).apply {
                 topMargin = (14 * density).toInt()
             }
-            text = "Choose LED Color:"
+            text = "Choose Solid LED Color:"
             setTextColor(Color.parseColor("#CCCCCC"))
             textSize = 14f
             paint.isFakeBoldText = true
@@ -350,6 +409,47 @@ class ContactColorActivity : ComponentActivity() {
         }
         horizontalScroll.addView(layoutContactColors)
 
+        // Blink Speed Selection Label & Row
+        val tvSpeedLabel = TextView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (16 * density).toInt()
+            }
+            text = "Blink Speed (Rapid Blinking):"
+            setTextColor(Color.parseColor("#CCCCCC"))
+            textSize = 14f
+            paint.isFakeBoldText = true
+        }
+
+        val speedScroll = HorizontalScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (8 * density).toInt()
+            }
+            isHorizontalScrollBarEnabled = false
+        }
+
+        layoutBlinkSpeeds = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        speedScroll.addView(layoutBlinkSpeeds)
+
+        val tvSpeedHelp = TextView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = (6 * density).toInt()
+            }
+            text = "Rapid (150ms / 250ms) blinks ultra-fast for urgent messages. Normal is 600ms."
+            setTextColor(Color.parseColor("#888888"))
+            textSize = 12f
+        }
+
         btnSaveContact = Button(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -358,7 +458,7 @@ class ContactColorActivity : ComponentActivity() {
                 topMargin = (16 * density).toInt()
             }
             setBackgroundColor(Color.parseColor("#2E7D32"))
-            text = "Save Contact Color"
+            text = "Save Contact Color & Speed"
             setTextColor(Color.WHITE)
             textSize = 15f
             paint.isFakeBoldText = true
@@ -369,6 +469,9 @@ class ContactColorActivity : ComponentActivity() {
         cardContent.addView(tvHint)
         cardContent.addView(tvColorLabel)
         cardContent.addView(horizontalScroll)
+        cardContent.addView(tvSpeedLabel)
+        cardContent.addView(speedScroll)
+        cardContent.addView(tvSpeedHelp)
         cardContent.addView(btnSaveContact)
         addCard.addView(cardContent)
         contentLayout.addView(addCard)
@@ -382,7 +485,7 @@ class ContactColorActivity : ComponentActivity() {
                 topMargin = (20 * density).toInt()
                 bottomMargin = (8 * density).toInt()
             }
-            text = "Saved Contact Colors"
+            text = "Saved Contact Colors & Speeds"
             setTextColor(Color.WHITE)
             textSize = 16f
             paint.isFakeBoldText = true
@@ -418,6 +521,7 @@ class ContactColorActivity : ComponentActivity() {
         setContentView(rootLayout)
 
         setupColorPalette()
+        setupSpeedOptions()
         setupRecyclerView()
         setupSaveButton()
 
@@ -446,6 +550,67 @@ class ContactColorActivity : ComponentActivity() {
             }
             colorViews.add(colorView)
             layoutContactColors.addView(colorView)
+        }
+    }
+
+    private fun setupSpeedOptions() {
+        layoutBlinkSpeeds.removeAllViews()
+        speedViews.clear()
+
+        val density = resources.displayMetrics.density
+        val marginPx = (4 * density).toInt()
+
+        for (option in ContactColorManager.SPEED_OPTIONS) {
+            val tvOption = TextView(this).apply {
+                text = option.label
+                textSize = 13f
+                paint.isFakeBoldText = true
+                gravity = Gravity.CENTER
+                setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+
+                val params = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(marginPx, marginPx, marginPx, marginPx)
+                }
+                layoutParams = params
+
+                background = createSpeedOptionDrawable(option.speedMs == selectedSpeedMs)
+                setTextColor(if (option.speedMs == selectedSpeedMs) Color.WHITE else Color.parseColor("#CCCCCC"))
+
+                setOnClickListener {
+                    selectedSpeedMs = option.speedMs
+                    refreshSpeedSelection()
+                }
+            }
+            speedViews.add(tvOption)
+            layoutBlinkSpeeds.addView(tvOption)
+        }
+    }
+
+    private fun refreshSpeedSelection() {
+        for (i in ContactColorManager.SPEED_OPTIONS.indices) {
+            val option = ContactColorManager.SPEED_OPTIONS[i]
+            val view = speedViews[i]
+            val isSelected = (option.speedMs == selectedSpeedMs)
+            view.background = createSpeedOptionDrawable(isSelected)
+            view.setTextColor(if (isSelected) Color.WHITE else Color.parseColor("#CCCCCC"))
+        }
+    }
+
+    private fun createSpeedOptionDrawable(isSelected: Boolean): GradientDrawable {
+        val density = resources.displayMetrics.density
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 8 * density
+            if (isSelected) {
+                setColor(Color.parseColor("#00897B"))
+                setStroke((2 * density).toInt(), Color.WHITE)
+            } else {
+                setColor(Color.parseColor("#2A2A2A"))
+                setStroke((1 * density).toInt(), Color.parseColor("#444444"))
+            }
         }
     }
 
@@ -480,7 +645,9 @@ class ContactColorActivity : ComponentActivity() {
             onItemClick = { item ->
                 etContactName.setText(item.contactName)
                 selectedColor = item.color
+                selectedSpeedMs = item.speedMs
                 refreshPaletteSelection()
+                refreshSpeedSelection()
             }
         )
         rvContactColors.layoutManager = LinearLayoutManager(this)
@@ -495,8 +662,8 @@ class ContactColorActivity : ComponentActivity() {
                 return@setOnClickListener
             }
 
-            ContactColorManager.saveContactColor(this, name, selectedColor)
-            Toast.makeText(this, "Saved color for \"$name\"", Toast.LENGTH_SHORT).show()
+            ContactColorManager.saveContactColor(this, name, selectedColor, selectedSpeedMs)
+            Toast.makeText(this, "Saved \"$name\" ($selectedSpeedMs ms)", Toast.LENGTH_SHORT).show()
             etContactName.text.clear()
             loadContacts()
         }
@@ -566,6 +733,27 @@ class ContactColorsAdapter(
             paint.isFakeBoldText = true
         }
 
+        val speedBadge = TextView(parent.context).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                marginEnd = (10 * density).toInt()
+            }
+            textSize = 12f
+            paint.isFakeBoldText = true
+            setTextColor(Color.parseColor("#80CBC4"))
+            setPadding((8 * density).toInt(), (4 * density).toInt(), (8 * density).toInt(), (4 * density).toInt())
+
+            val badgeDrawable = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 6 * density
+                setColor(Color.parseColor("#263238"))
+                setStroke((1 * density).toInt(), Color.parseColor("#00897B"))
+            }
+            background = badgeDrawable
+        }
+
         val deleteBtn = ImageButton(parent.context).apply {
             layoutParams = LinearLayout.LayoutParams((40 * density).toInt(), (40 * density).toInt())
             setBackgroundColor(Color.TRANSPARENT)
@@ -576,10 +764,11 @@ class ContactColorsAdapter(
 
         row.addView(colorDot)
         row.addView(nameText)
+        row.addView(speedBadge)
         row.addView(deleteBtn)
         card.addView(row)
 
-        return ContactViewHolder(card, colorDot, nameText, deleteBtn)
+        return ContactViewHolder(card, colorDot, nameText, speedBadge, deleteBtn)
     }
 
     override fun onBindViewHolder(holder: ContactViewHolder, position: Int) {
@@ -593,11 +782,20 @@ class ContactColorsAdapter(
         itemView: View,
         private val viewContactColor: View,
         private val tvContactName: TextView,
+        private val tvSpeedBadge: TextView,
         private val btnDeleteContact: ImageButton
     ) : RecyclerView.ViewHolder(itemView) {
 
         fun bind(item: ContactColorItem) {
             tvContactName.text = item.contactName
+
+            val speedLabel = if (item.speedMs <= 250) {
+                "⚡ ${item.speedMs}ms"
+            } else {
+                "${item.speedMs}ms"
+            }
+            tvSpeedBadge.text = speedLabel
+
             val drawable = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(item.color)

@@ -30,22 +30,32 @@ class NotificationListener : NotificationListenerService() {
 
         // WhatsApp per-contact extraction
         if (pkgName == "com.whatsapp" || pkgName == "com.whatsapp.w4b") {
+            val isSummary = (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
             val extras = sbn.notification.extras
             if (extras != null) {
                 val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim()
                 val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim()
                 val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()?.trim()
 
+                // Skip generic summary notifications (e.g. "WhatsApp", "X new messages") so they don't overwrite contact
+                if (isSummary && (title.equals("WhatsApp", ignoreCase = true) ||
+                                  title.equals("WhatsApp Business", ignoreCase = true) ||
+                                  title?.contains("new messages", ignoreCase = true) == true)) {
+                    return
+                }
+
                 // Detect group chat: if subText is present or text has "Sender: message" format
                 val isGroup = !subText.isNullOrEmpty() || (text != null && text.contains(":") && title != null && !title.contains(":"))
                 if (isGroup && text != null && text.contains(":")) {
                     val extracted = text.substringBefore(":").trim()
-                    if (extracted.isNotEmpty()) {
+                    if (extracted.isNotEmpty() && !extracted.equals("WhatsApp", ignoreCase = true)) {
                         contactName = extracted
                     }
                 }
 
-                if (contactName.isNullOrEmpty() && !title.isNullOrEmpty()) {
+                if (contactName.isNullOrEmpty() && !title.isNullOrEmpty() &&
+                    !title.equals("WhatsApp", ignoreCase = true) &&
+                    !title.equals("WhatsApp Business", ignoreCase = true)) {
                     contactName = title
                 }
             }
