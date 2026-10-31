@@ -1339,8 +1339,10 @@ class LedOverlayService : Service() {
         const val EXTRA_ALERT_SPEEDS = "alert_speeds"
         const val EXTRA_ALERT_NAMES = "alert_names"
         const val EXTRA_IS_TEST = "is_test"
+        const val EXTRA_FORCE_AOD = "force_aod"
 
         const val PREFS_NAME = "led_prefs"
+        const val KEY_AOD_MODE = "aod_mode"
         const val KEY_SIZE = "size"
         const val KEY_COLOR = "color"
         const val KEY_POS_X = "posX"
@@ -1460,6 +1462,15 @@ class LedOverlayService : Service() {
 
         fun startPositioning(context: Context) {
             start(context, isTest = true)
+        }
+
+        fun previewAod(context: Context) {
+            val intent = Intent(context, LedOverlayService::class.java).apply {
+                action = ACTION_START_LED
+                putExtra(EXTRA_IS_TEST, false)
+                putExtra(EXTRA_FORCE_AOD, true)
+            }
+            ContextCompat.startForegroundService(context, intent)
         }
 
         fun stop(context: Context) {
