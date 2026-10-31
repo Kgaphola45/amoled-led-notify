@@ -71,6 +71,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var btnAnimSolid: Button
     private lateinit var tvPatternDescription: TextView
 
+    // System & Hardware Trigger views
+    private lateinit var switchBatteryIndicator: android.widget.Switch
+    private lateinit var switchLowBatteryWarning: android.widget.Switch
+    private lateinit var btnMissedCallColor: Button
+    private lateinit var btnSmsColor: Button
+
     private val colorOptions = listOf(
         0xFF00FF00.toInt(), // Green
         0xFFFF0000.toInt(), // Red
@@ -109,6 +115,7 @@ class MainActivity : ComponentActivity() {
         setupPositionControls()
         setupLifecycleSwitches()
         setupHealthAndBatteryControls()
+        setupSystemAndHardwareTriggers()
         setupActionButtons()
 
         requestNotificationPermissionIfNeeded()
@@ -181,6 +188,11 @@ class MainActivity : ComponentActivity() {
         btnAnimHeartbeat = findViewById(R.id.btnAnimHeartbeat)
         btnAnimSolid = findViewById(R.id.btnAnimSolid)
         tvPatternDescription = findViewById(R.id.tvPatternDescription)
+
+        switchBatteryIndicator = findViewById(R.id.switchBatteryIndicator)
+        switchLowBatteryWarning = findViewById(R.id.switchLowBatteryWarning)
+        btnMissedCallColor = findViewById(R.id.btnMissedCallColor)
+        btnSmsColor = findViewById(R.id.btnSmsColor)
     }
 
     private fun setupPermissions() {
