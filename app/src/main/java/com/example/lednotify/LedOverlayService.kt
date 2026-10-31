@@ -353,6 +353,7 @@ class LedOverlayService : Service() {
             addAction(Intent.ACTION_BATTERY_CHANGED)
             addAction(Intent.ACTION_BATTERY_LOW)
             addAction(Intent.ACTION_BATTERY_OKAY)
+            addAction(NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED)
         }
         registerReceiver(screenStateReceiver, filter)
         isReceiverRegistered = true
@@ -389,6 +390,7 @@ class LedOverlayService : Service() {
         }
 
         // Reset notification timer for newly arriving notification
+        isTimedOut = false
         notificationStartTimeMs = System.currentTimeMillis()
         scheduleTimeout()
 
@@ -398,6 +400,7 @@ class LedOverlayService : Service() {
                 activeAlertSpeeds = intent.getIntArrayExtra(EXTRA_ALERT_SPEEDS) ?: intArrayOf()
                 activeAlertNames = intent.getStringArrayExtra(EXTRA_ALERT_NAMES) ?: arrayOf()
                 activeAlertPatterns = intent.getStringArrayExtra(EXTRA_ALERT_PATTERNS) ?: arrayOf()
+                activeAlertPackages = intent.getStringArrayExtra(EXTRA_ALERT_PACKAGES) ?: arrayOf()
             }
 
             if (intent.hasExtra(EXTRA_PACKAGE_NAME)) {
@@ -460,8 +463,26 @@ class LedOverlayService : Service() {
         }
     }
 
-    private fun isWithinDndHours(): Boolean {
+    private fun isDndOrQuietActive(): Boolean {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+        // 1. Android System Do Not Disturb check
+        if (prefs.getBoolean(KEY_RESPECT_SYSTEM_DND, true)) {
+            try {
+                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                val filter = nm?.currentInterruptionFilter
+                if (filter != null &&
+                    filter != NotificationManager.INTERRUPTION_FILTER_ALL &&
+                    filter != NotificationManager.INTERRUPTION_FILTER_UNKNOWN
+                ) {
+                    return true
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+
+        // 2. Quiet Hours / Sleep Schedule
         if (!prefs.getBoolean(KEY_DND_ENABLED, false)) return false
 
         val startH = prefs.getInt(KEY_DND_START_HOUR, 23)
@@ -502,7 +523,7 @@ class LedOverlayService : Service() {
         }
 
         // 2. Quiet Hours / DND check
-        if (isWithinDndHours()) {
+        if (isDndOrQuietActive()) {
             removeAodOverlay()
             overlayView?.visibility = View.GONE
             pauseBlinkAnimation()
@@ -530,9 +551,10 @@ class LedOverlayService : Service() {
 
         // 5. Auto-Off Timer (Timeout) check for active alerts
         val timeoutMinutes = prefs.getInt(KEY_TIMEOUT_MINUTES, 15)
-        if (activeAlertColors.isNotEmpty() && timeoutMinutes > 0) {
+        val hasAlerts = activeAlertColors.isNotEmpty() || !currentPackageName.isNullOrBlank()
+        if (hasAlerts && timeoutMinutes > 0) {
             val elapsed = System.currentTimeMillis() - notificationStartTimeMs
-            if (elapsed >= timeoutMinutes * 60 * 1000L) {
+            if (isTimedOut || elapsed >= timeoutMinutes * 60 * 1000L) {
                 removeAodOverlay()
                 overlayView?.visibility = View.GONE
                 pauseBlinkAnimation()
@@ -540,9 +562,23 @@ class LedOverlayService : Service() {
             }
         }
 
-        // 6. Check active triggers (alerts, battery charging, low battery, or forced AOD preview)
+        // 6. Suppress when user is actively inside the notifying app (Screen is ON)
+        val suppressWhenInApp = prefs.getBoolean(KEY_SUPPRESS_WHEN_APP_FOREGROUND, true)
+        if (suppressWhenInApp && isScreenOn) {
+            val fgApp = ForegroundAppDetector.getForegroundPackage(this)
+            val isInsideNotifyingApp = fgApp != null && (
+                fgApp == currentPackageName || activeAlertPackages.contains(fgApp)
+            )
+            if (isInsideNotifyingApp) {
+                removeAodOverlay()
+                overlayView?.visibility = View.GONE
+                pauseBlinkAnimation()
+                return
+            }
+        }
+
+        // 7. Check active triggers (alerts, battery charging, low battery, or forced AOD preview)
         val batteryIndicatorEnabled = prefs.getBoolean(KEY_BATTERY_INDICATOR_ENABLED, true)
-        val hasAlerts = activeAlertColors.isNotEmpty() || !currentPackageName.isNullOrBlank()
         val hasBatteryTrigger = batteryIndicatorEnabled && (isBatteryCharging || (lowBatteryWarningEnabled && currentBatteryPct in 1..15))
 
         if (!hasAlerts && !hasBatteryTrigger && !isForcedAod) {
@@ -556,7 +592,7 @@ class LedOverlayService : Service() {
             applyBatteryState()
         }
 
-        // 7. Mode selection: Screen OFF (AOD black screen) vs Screen ON (floating dot)
+        // 8. Mode selection: Screen OFF (AOD black screen) vs Screen ON (floating dot)
         val aodEnabled = prefs.getBoolean(KEY_AOD_MODE, true)
 
         if ((!isScreenOn || isForcedAod) && aodEnabled) {
@@ -760,7 +796,12 @@ class LedOverlayService : Service() {
             tvAodBatteryText?.text = "$currentBatteryPct%"
         }
 
-        if (activeAlertColors.isNotEmpty()) {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val privacyMode = prefs.getBoolean(KEY_PRIVACY_MODE, false)
+
+        if (privacyMode) {
+            tvAodAlertText?.visibility = View.GONE
+        } else if (activeAlertColors.isNotEmpty()) {
             val count = activeAlertColors.size
             val alertLabel = if (count == 1 && activeAlertNames.isNotEmpty()) {
                 activeAlertNames[0]
@@ -948,11 +989,18 @@ class LedOverlayService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val statusText = customText ?: when {
-            activeAlertColors.size > 1 -> "Pending alerts from ${activeAlertColors.size} apps"
-            !currentSenderName.isNullOrBlank() -> "Message from $currentSenderName"
-            !currentPackageName.isNullOrBlank() -> "Notification received"
-            else -> "LED dot active"
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val privacyMode = prefs.getBoolean(KEY_PRIVACY_MODE, false)
+
+        val statusText = if (privacyMode) {
+            "LED Notification Active"
+        } else {
+            customText ?: when {
+                activeAlertColors.size > 1 -> "Pending alerts from ${activeAlertColors.size} apps"
+                !currentSenderName.isNullOrBlank() -> "Message from $currentSenderName"
+                !currentPackageName.isNullOrBlank() -> "Notification received"
+                else -> "LED dot active"
+            }
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
@@ -1369,6 +1417,7 @@ class LedOverlayService : Service() {
         cycleHandler.removeCallbacksAndMessages(null)
         pixelShiftHandler.removeCallbacksAndMessages(null)
         timeoutHandler.removeCallbacksAndMessages(null)
+        foregroundCheckHandler.removeCallbacksAndMessages(null)
         isManualMode = false
         removeOverlay()
         super.onDestroy()
