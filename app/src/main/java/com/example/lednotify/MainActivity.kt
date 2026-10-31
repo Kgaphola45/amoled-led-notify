@@ -1361,6 +1361,7 @@ class MainActivity : ComponentActivity() {
                     switchDnd.isChecked = prefs.getBoolean(LedOverlayService.KEY_DND_ENABLED, false)
                     switchBatteryIndicator.isChecked = prefs.getBoolean(LedOverlayService.KEY_BATTERY_INDICATOR_ENABLED, true)
                     switchLowBatteryWarning.isChecked = prefs.getBoolean(LedOverlayService.KEY_LOW_BATTERY_WARNING, true)
+                    switchAodMode.isChecked = prefs.getBoolean(LedOverlayService.KEY_AOD_MODE, true)
                 } else {
                     android.app.AlertDialog.Builder(this)
                         .setTitle("Import Failed")

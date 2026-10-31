@@ -106,12 +106,20 @@ class NotificationListener : NotificationListenerService() {
             activeList.add(postedSbn)
         }
 
+        val suppressWhenInApp = prefs.getBoolean(LedOverlayService.KEY_SUPPRESS_WHEN_APP_FOREGROUND, true)
+        val currentFgApp = if (suppressWhenInApp) ForegroundAppDetector.getForegroundPackage(this) else null
+
         val alerts = mutableListOf<AlertInfo>()
         for (sbn in activeList) {
             if (sbn.key == removedKey) continue
 
             val pkg = sbn.packageName ?: continue
             if (pkg == packageName) continue
+
+            // Don't blink if the user is currently using the app that sent the alert
+            if (suppressWhenInApp && currentFgApp != null && pkg == currentFgApp) {
+                continue
+            }
 
             val isOngoing = (sbn.notification.flags and Notification.FLAG_ONGOING_EVENT) != 0
             if (isOngoing) continue
@@ -215,6 +223,7 @@ class NotificationListener : NotificationListenerService() {
         val speeds = distinctAlerts.map { it.speed }.toIntArray()
         val names = distinctAlerts.map { it.displayName }.toTypedArray()
         val patterns = distinctAlerts.map { it.pattern }.toTypedArray()
+        val packages = distinctAlerts.map { it.pkgName }.toTypedArray()
         val primary = distinctAlerts.first()
 
         val intent = Intent(this, LedOverlayService::class.java).apply {
@@ -223,6 +232,7 @@ class NotificationListener : NotificationListenerService() {
             putExtra(LedOverlayService.EXTRA_ALERT_SPEEDS, speeds)
             putExtra(LedOverlayService.EXTRA_ALERT_NAMES, names)
             putExtra(LedOverlayService.EXTRA_ALERT_PATTERNS, patterns)
+            putExtra(LedOverlayService.EXTRA_ALERT_PACKAGES, packages)
             putExtra(LedOverlayService.EXTRA_PACKAGE_NAME, primary.pkgName)
             if (!primary.contactName.isNullOrBlank()) {
                 putExtra(LedOverlayService.EXTRA_SENDER_NAME, primary.contactName)
