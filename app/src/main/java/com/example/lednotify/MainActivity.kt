@@ -87,6 +87,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var btnMissedCallColor: Button
     private lateinit var btnSmsColor: Button
 
+    // Convenience & UX views
+    private lateinit var switchMasterEnable: android.widget.Switch
+    private lateinit var btnSimulateNotification: Button
+    private lateinit var btnExportConfig: Button
+    private lateinit var btnImportConfig: Button
+
     private val colorOptions = listOf(
         0xFF00FF00.toInt(), // Green
         0xFFFF0000.toInt(), // Red
@@ -126,6 +132,7 @@ class MainActivity : ComponentActivity() {
         setupLifecycleSwitches()
         setupHealthAndBatteryControls()
         setupSystemAndHardwareTriggers()
+        setupConvenienceAndUx()
         setupActionButtons()
 
         requestNotificationPermissionIfNeeded()
@@ -139,6 +146,7 @@ class MainActivity : ComponentActivity() {
         val color = AppColorManager.getDefaultColor(this)
         updatePreviewDot(size, color)
         syncPositionSliders()
+        switchMasterEnable.isChecked = LedTileService.isMasterEnabled(this)
 
         // Sync sliders in real time when dot is dragged on screen
         LedOverlayService.onPositionChangedListener = { x, y ->
@@ -203,6 +211,11 @@ class MainActivity : ComponentActivity() {
         switchLowBatteryWarning = findViewById(R.id.switchLowBatteryWarning)
         btnMissedCallColor = findViewById(R.id.btnMissedCallColor)
         btnSmsColor = findViewById(R.id.btnSmsColor)
+
+        switchMasterEnable = findViewById(R.id.switchMasterEnable)
+        btnSimulateNotification = findViewById(R.id.btnSimulateNotification)
+        btnExportConfig = findViewById(R.id.btnExportConfig)
+        btnImportConfig = findViewById(R.id.btnImportConfig)
     }
 
     private fun setupPermissions() {
