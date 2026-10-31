@@ -45,6 +45,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var tvPosYLabel: TextView
     private lateinit var seekBarPosY: SeekBar
     private lateinit var btnPositionScreen: Button
+    private lateinit var switchHideWhileUnlocked: android.widget.Switch
+    private lateinit var switchCycleColors: android.widget.Switch
+    private lateinit var switchAutoDismiss: android.widget.Switch
     private lateinit var btnTestLed: Button
     private lateinit var btnStopLed: Button
 
@@ -82,6 +85,7 @@ class MainActivity : ComponentActivity() {
         setupSizeControl()
         setupColorPicker()
         setupPositionControls()
+        setupLifecycleSwitches()
         setupActionButtons()
 
         requestNotificationPermissionIfNeeded()
@@ -130,6 +134,9 @@ class MainActivity : ComponentActivity() {
         tvPosYLabel = findViewById(R.id.tvPosYLabel)
         seekBarPosY = findViewById(R.id.seekBarPosY)
         btnPositionScreen = findViewById(R.id.btnPositionScreen)
+        switchHideWhileUnlocked = findViewById(R.id.switchHideWhileUnlocked)
+        switchCycleColors = findViewById(R.id.switchCycleColors)
+        switchAutoDismiss = findViewById(R.id.switchAutoDismiss)
         btnTestLed = findViewById(R.id.btnTestLed)
         btnStopLed = findViewById(R.id.btnStopLed)
     }
@@ -468,6 +475,26 @@ class MainActivity : ComponentActivity() {
         previewLedDot.background = drawable
     }
 
+    private fun setupLifecycleSwitches() {
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+
+        switchHideWhileUnlocked.isChecked = prefs.getBoolean(LedOverlayService.KEY_HIDE_WHILE_UNLOCKED, true)
+        switchCycleColors.isChecked = prefs.getBoolean(LedOverlayService.KEY_CYCLE_COLORS, true)
+        switchAutoDismiss.isChecked = prefs.getBoolean(LedOverlayService.KEY_AUTO_DISMISS, true)
+
+        switchHideWhileUnlocked.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(LedOverlayService.KEY_HIDE_WHILE_UNLOCKED, isChecked).apply()
+        }
+
+        switchCycleColors.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(LedOverlayService.KEY_CYCLE_COLORS, isChecked).apply()
+        }
+
+        switchAutoDismiss.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(LedOverlayService.KEY_AUTO_DISMISS, isChecked).apply()
+        }
+    }
+
     private fun setupActionButtons() {
         btnTestLed.setOnClickListener {
             if (!Settings.canDrawOverlays(this)) {
@@ -480,7 +507,7 @@ class MainActivity : ComponentActivity() {
                 return@setOnClickListener
             }
             requestNotificationPermissionIfNeeded()
-            LedOverlayService.start(this)
+            LedOverlayService.start(this, isTest = true)
             Toast.makeText(this, "LED overlay started! You can drag the dot anywhere on screen.", Toast.LENGTH_SHORT).show()
         }
 

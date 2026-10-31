@@ -2,18 +2,24 @@ package com.example.lednotify
 
 import android.animation.ObjectAnimator
 import android.annotation.SuppressLint
+import android.app.KeyguardManager
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.Gravity
@@ -38,12 +44,71 @@ class LedOverlayService : Service() {
     private var activeColor: Int = 0xFF00FF00.toInt()
     private var activeSpeedMs: Int = ContactColorManager.DEFAULT_BLINK_SPEED_MS
 
+    // Multi-notification cycling
+    private var activeAlertColors: IntArray = intArrayOf()
+    private var activeAlertSpeeds: IntArray = intArrayOf()
+    private var activeAlertNames: Array<String> = arrayOf()
+    private val cycleHandler = Handler(Looper.getMainLooper())
+    private var cycleIndex = 0
+
+    // Screen and lockscreen awareness
+    private var isScreenOn = true
+    private var isReceiverRegistered = false
+
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    isScreenOn = false
+                    updateVisibilityForScreenState()
+                }
+                Intent.ACTION_SCREEN_ON -> {
+                    isScreenOn = true
+                    updateVisibilityForScreenState()
+                }
+                Intent.ACTION_USER_PRESENT -> {
+                    updateVisibilityForScreenState()
+                }
+            }
+        }
+    }
+
+    private val cycleRunnable = object : Runnable {
+        override fun run() {
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val shouldCycle = prefs.getBoolean(KEY_CYCLE_COLORS, true)
+
+            if (!shouldCycle || activeAlertColors.size <= 1 || isManualMode) {
+                return
+            }
+
+            cycleIndex = (cycleIndex + 1) % activeAlertColors.size
+            val nextColor = activeAlertColors[cycleIndex]
+            val nextSpeed = activeAlertSpeeds.getOrElse(cycleIndex) { ContactColorManager.DEFAULT_BLINK_SPEED_MS }
+            val nextName = activeAlertNames.getOrElse(cycleIndex) { "Alert" }
+
+            applyColor(nextColor)
+            applyBlinkSpeed(nextSpeed)
+            updateForegroundNotification("Pending alerts (${activeAlertColors.size}): $nextName")
+
+            cycleHandler.postDelayed(this, CYCLE_INTERVAL_MS)
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         instanceRef = WeakReference(this)
         createNotificationChannel()
+
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        registerReceiver(screenStateReceiver, filter)
+        isReceiverRegistered = true
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -53,7 +118,20 @@ class LedOverlayService : Service() {
             return START_NOT_STICKY
         }
 
+        val isTest = intent?.getBooleanExtra(EXTRA_IS_TEST, false) ?: false
+        if (isTest) {
+            isManualMode = true
+        } else if (intent?.hasExtra(EXTRA_PACKAGE_NAME) == true || intent?.hasExtra(EXTRA_ALERT_COLORS) == true) {
+            isManualMode = false
+        }
+
         if (intent != null) {
+            if (intent.hasExtra(EXTRA_ALERT_COLORS)) {
+                activeAlertColors = intent.getIntArrayExtra(EXTRA_ALERT_COLORS) ?: intArrayOf()
+                activeAlertSpeeds = intent.getIntArrayExtra(EXTRA_ALERT_SPEEDS) ?: intArrayOf()
+                activeAlertNames = intent.getStringArrayExtra(EXTRA_ALERT_NAMES) ?: arrayOf()
+            }
+
             if (intent.hasExtra(EXTRA_PACKAGE_NAME)) {
                 currentPackageName = intent.getStringExtra(EXTRA_PACKAGE_NAME)
                 currentSenderName = if (intent.hasExtra(EXTRA_SENDER_NAME)) {
@@ -69,8 +147,60 @@ class LedOverlayService : Service() {
         resolveActiveColorAndSpeed()
         startAsForeground()
         showOverlay()
+        setupColorCycling()
+        updateVisibilityForScreenState()
 
         return START_NOT_STICKY
+    }
+
+    private fun setupColorCycling() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val shouldCycle = prefs.getBoolean(KEY_CYCLE_COLORS, true)
+
+        cycleHandler.removeCallbacksAndMessages(null)
+
+        if (activeAlertColors.size > 1 && shouldCycle && !isManualMode) {
+            cycleIndex = 0
+            val initialColor = activeAlertColors[0]
+            val initialSpeed = activeAlertSpeeds.getOrElse(0) { ContactColorManager.DEFAULT_BLINK_SPEED_MS }
+            applyColor(initialColor)
+            applyBlinkSpeed(initialSpeed)
+            cycleHandler.postDelayed(cycleRunnable, CYCLE_INTERVAL_MS)
+        } else if (activeAlertColors.size == 1) {
+            val singleColor = activeAlertColors[0]
+            val singleSpeed = activeAlertSpeeds.getOrElse(0) { ContactColorManager.DEFAULT_BLINK_SPEED_MS }
+            applyColor(singleColor)
+            applyBlinkSpeed(singleSpeed)
+        }
+    }
+
+    private fun updateVisibilityForScreenState() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val hideWhileUnlocked = prefs.getBoolean(KEY_HIDE_WHILE_UNLOCKED, true)
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        val isLocked = km.isKeyguardLocked
+
+        // If manual test or drag positioning mode from MainActivity, keep visible for user setup
+        if (isManualMode) {
+            overlayView?.visibility = View.VISIBLE
+            resumeBlinkAnimation()
+            return
+        }
+
+        if (hideWhileUnlocked) {
+            // When device is locked or screen is off -> show LED!
+            // When device is unlocked (user present / actively using) -> hide LED!
+            if (!isScreenOn || isLocked) {
+                overlayView?.visibility = View.VISIBLE
+                resumeBlinkAnimation()
+            } else {
+                overlayView?.visibility = View.GONE
+                pauseBlinkAnimation()
+            }
+        } else {
+            overlayView?.visibility = View.VISIBLE
+            resumeBlinkAnimation()
+        }
     }
 
     private fun resolveActiveColorAndSpeed() {
@@ -127,7 +257,7 @@ class LedOverlayService : Service() {
         }
     }
 
-    private fun startAsForeground() {
+    private fun buildForegroundNotification(customText: String? = null): Notification {
         val stopIntent = Intent(this, LedOverlayService::class.java).apply {
             action = ACTION_STOP_LED
         }
@@ -146,13 +276,14 @@ class LedOverlayService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val statusText = when {
+        val statusText = customText ?: when {
+            activeAlertColors.size > 1 -> "Pending alerts from ${activeAlertColors.size} apps"
             !currentSenderName.isNullOrBlank() -> "Message from $currentSenderName"
             !currentPackageName.isNullOrBlank() -> "Notification received"
             else -> "LED dot active"
         }
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("AMOLED LED Notify")
             .setContentText(statusText)
@@ -161,7 +292,16 @@ class LedOverlayService : Service() {
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+    }
 
+    private fun updateForegroundNotification(customText: String? = null) {
+        val notification = buildForegroundNotification(customText)
+        val manager = getSystemService(NotificationManager::class.java)
+        manager?.notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun startAsForeground() {
+        val notification = buildForegroundNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
                 NOTIFICATION_ID,
@@ -195,6 +335,7 @@ class LedOverlayService : Service() {
             applyColor(activeColor)
             applyBlinkSpeed(activeSpeedMs)
             applySize(sizeDp)
+            updateVisibilityForScreenState()
             return
         }
 
@@ -350,6 +491,7 @@ class LedOverlayService : Service() {
 
         try {
             windowManager?.addView(overlayView, layoutParams)
+            updateVisibilityForScreenState()
         } catch (e: Exception) {
             e.printStackTrace()
             stopSelf()
@@ -481,6 +623,16 @@ class LedOverlayService : Service() {
 
     override fun onDestroy() {
         instanceRef = null
+        if (isReceiverRegistered) {
+            try {
+                unregisterReceiver(screenStateReceiver)
+            } catch (e: Exception) {
+                // ignore
+            }
+            isReceiverRegistered = false
+        }
+        cycleHandler.removeCallbacksAndMessages(null)
+        isManualMode = false
         removeOverlay()
         super.onDestroy()
     }
@@ -492,6 +644,10 @@ class LedOverlayService : Service() {
         const val ACTION_STOP = "com.example.lednotify.ACTION_STOP"
         const val EXTRA_PACKAGE_NAME = "packageName"
         const val EXTRA_SENDER_NAME = "senderName"
+        const val EXTRA_ALERT_COLORS = "alert_colors"
+        const val EXTRA_ALERT_SPEEDS = "alert_speeds"
+        const val EXTRA_ALERT_NAMES = "alert_names"
+        const val EXTRA_IS_TEST = "is_test"
 
         const val PREFS_NAME = "led_prefs"
         const val KEY_SIZE = "size"
@@ -501,12 +657,21 @@ class LedOverlayService : Service() {
         const val KEY_LATEST_COLOR = "latest_color"
         const val KEY_LATEST_SPEED = "latest_speed"
 
+        // New lifecycle & screen behavior settings
+        const val KEY_HIDE_WHILE_UNLOCKED = "hide_while_unlocked"
+        const val KEY_CYCLE_COLORS = "cycle_colors"
+        const val KEY_AUTO_DISMISS = "auto_dismiss"
+
+        const val CYCLE_INTERVAL_MS = 2500L
+
         private const val CHANNEL_ID = "led_overlay_channel"
         private const val NOTIFICATION_ID = 1001
 
         private var instanceRef: WeakReference<LedOverlayService>? = null
 
         var onPositionChangedListener: ((Float, Float) -> Unit)? = null
+
+        var isManualMode: Boolean = false
 
         fun getRealScreenSize(context: Context): Pair<Int, Int> {
             val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -541,7 +706,10 @@ class LedOverlayService : Service() {
             instanceRef?.get()?.applyBlinkSpeed(speedMs)
         }
 
-        fun start(context: Context, packageName: String? = null, senderName: String? = null) {
+        fun start(context: Context, packageName: String? = null, senderName: String? = null, isTest: Boolean = false) {
+            if (isTest) {
+                isManualMode = true
+            }
             val intent = Intent(context, LedOverlayService::class.java).apply {
                 action = ACTION_START_LED
                 if (packageName != null) {
@@ -550,15 +718,17 @@ class LedOverlayService : Service() {
                 if (senderName != null) {
                     putExtra(EXTRA_SENDER_NAME, senderName)
                 }
+                putExtra(EXTRA_IS_TEST, isTest)
             }
             ContextCompat.startForegroundService(context, intent)
         }
 
         fun startPositioning(context: Context) {
-            start(context)
+            start(context, isTest = true)
         }
 
         fun stop(context: Context) {
+            isManualMode = false
             val intent = Intent(context, LedOverlayService::class.java).apply {
                 action = ACTION_STOP_LED
             }
