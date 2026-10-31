@@ -441,6 +441,7 @@ class LedOverlayService : Service() {
 
         // 1. Manual test / positioning from MainActivity takes precedence
         if (isManualMode) {
+            removeAodOverlay()
             overlayView?.visibility = View.VISIBLE
             resumeBlinkAnimation()
             return
@@ -448,6 +449,7 @@ class LedOverlayService : Service() {
 
         // Master Enable / Quick Settings toggle check
         if (!LedTileService.isMasterEnabled(this)) {
+            removeAodOverlay()
             overlayView?.visibility = View.GONE
             pauseBlinkAnimation()
             return
@@ -455,6 +457,7 @@ class LedOverlayService : Service() {
 
         // 2. Quiet Hours / DND check
         if (isWithinDndHours()) {
+            removeAodOverlay()
             overlayView?.visibility = View.GONE
             pauseBlinkAnimation()
             return
@@ -463,6 +466,7 @@ class LedOverlayService : Service() {
         // 3. Pocket Mode (Proximity Sensor) check
         val pocketModeEnabled = prefs.getBoolean(KEY_POCKET_MODE, true)
         if (pocketModeEnabled && isProximityCovered) {
+            removeAodOverlay()
             overlayView?.visibility = View.GONE
             pauseBlinkAnimation()
             return
@@ -472,6 +476,7 @@ class LedOverlayService : Service() {
         val batteryCutoff = prefs.getInt(KEY_LOW_BATTERY_CUTOFF, 15)
         val lowBatteryWarningEnabled = prefs.getBoolean(KEY_LOW_BATTERY_WARNING, true)
         if (!isBatteryCharging && batteryCutoff > 0 && currentBatteryPct in 0..batteryCutoff && !lowBatteryWarningEnabled) {
+            removeAodOverlay()
             overlayView?.visibility = View.GONE
             pauseBlinkAnimation()
             return
@@ -482,60 +487,69 @@ class LedOverlayService : Service() {
         if (activeAlertColors.isNotEmpty() && timeoutMinutes > 0) {
             val elapsed = System.currentTimeMillis() - notificationStartTimeMs
             if (elapsed >= timeoutMinutes * 60 * 1000L) {
+                removeAodOverlay()
                 overlayView?.visibility = View.GONE
                 pauseBlinkAnimation()
                 return
             }
         }
 
-        // 6. Phone in use (unlocked) check
-        val hideWhileUnlocked = prefs.getBoolean(KEY_HIDE_WHILE_UNLOCKED, true)
-        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-        val isLocked = km.isKeyguardLocked
+        // 6. Check active triggers (alerts, battery charging, low battery, or forced AOD preview)
+        val batteryIndicatorEnabled = prefs.getBoolean(KEY_BATTERY_INDICATOR_ENABLED, true)
+        val hasAlerts = activeAlertColors.isNotEmpty() || !currentPackageName.isNullOrBlank()
+        val hasBatteryTrigger = batteryIndicatorEnabled && (isBatteryCharging || (lowBatteryWarningEnabled && currentBatteryPct in 1..15))
 
-        val shouldBeVisible = if (hideWhileUnlocked) {
-            // When device is locked or screen is off -> show LED!
-            // When device is unlocked (user present / actively using) -> hide LED!
-            !isScreenOn || isLocked
-        } else {
-            true
-        }
-
-        if (!shouldBeVisible) {
+        if (!hasAlerts && !hasBatteryTrigger && !isForcedAod) {
+            removeAodOverlay()
             overlayView?.visibility = View.GONE
             pauseBlinkAnimation()
             return
         }
 
-        // 7. Active unread notifications
-        if (activeAlertColors.isNotEmpty() || !currentPackageName.isNullOrBlank()) {
-            overlayView?.visibility = View.VISIBLE
-            resumeBlinkAnimation()
-            return
-        }
-
-        // 8. Hardware & Battery Trigger check
-        val batteryIndicatorEnabled = prefs.getBoolean(KEY_BATTERY_INDICATOR_ENABLED, true)
-        if (batteryIndicatorEnabled && (isBatteryCharging || (lowBatteryWarningEnabled && currentBatteryPct in 1..15))) {
+        if (hasBatteryTrigger && !hasAlerts) {
             applyBatteryState()
-            overlayView?.visibility = View.VISIBLE
-            resumeBlinkAnimation()
-            return
         }
 
-        // 9. Otherwise hide overlay
-        overlayView?.visibility = View.GONE
-        pauseBlinkAnimation()
+        // 7. Mode selection: Screen OFF (AOD black screen) vs Screen ON (floating dot)
+        val aodEnabled = prefs.getBoolean(KEY_AOD_MODE, true)
+
+        if ((!isScreenOn || isForcedAod) && aodEnabled) {
+            // Mode 2: Screen OFF = Black screen + dot (AMOLED saver) + time & battery %
+            overlayView?.visibility = View.GONE
+            pauseBlinkAnimation()
+            showAodOverlay()
+        } else {
+            // Mode 1: Screen ON = Just dot overlay
+            removeAodOverlay()
+
+            val hideWhileUnlocked = prefs.getBoolean(KEY_HIDE_WHILE_UNLOCKED, true)
+            val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            val isLocked = km.isKeyguardLocked
+
+            val shouldBeVisible = if (hideWhileUnlocked) {
+                !isScreenOn || isLocked
+            } else {
+                true
+            }
+
+            if (shouldBeVisible) {
+                overlayView?.visibility = View.VISIBLE
+                resumeBlinkAnimation()
+            } else {
+                overlayView?.visibility = View.GONE
+                pauseBlinkAnimation()
+            }
+        }
     }
 
     private fun applyBatteryState() {
         if (isBatteryCharging) {
-            if (currentBatteryPct >= 100 || isBatteryFull) {
-                // Solid Green when 100% fully charged
+            if (currentBatteryPct >= 90 || isBatteryFull) {
+                // Solid Green when full (>= 90% or reported full)
                 val greenColor = 0xFF00FF00.toInt()
                 applyColor(greenColor)
                 startSpecificAnimation(PATTERN_SOLID, 1000)
-                updateForegroundNotification("Battery Full: 100% Charged")
+                updateForegroundNotification("Battery Full: $currentBatteryPct% Charged")
             } else {
                 // Pulsing Amber/Orange while charging
                 val amberColor = 0xFFFF9100.toInt()
@@ -550,6 +564,270 @@ class LedOverlayService : Service() {
             startSpecificAnimation(PATTERN_BLINK, 250)
             updateForegroundNotification("Critically Low Battery: $currentBatteryPct%")
         }
+    }
+
+    @Suppress("DEPRECATION")
+    @SuppressLint("InflateParams", "ClickableViewAccessibility")
+    private fun showAodOverlay() {
+        if (!Settings.canDrawOverlays(this)) return
+
+        if (aodView != null) {
+            updateAodClockAndBattery()
+            applyAodDotStyle()
+            aodView?.visibility = View.VISIBLE
+            return
+        }
+
+        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            overlayType,
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+            PixelFormat.TRANSLUCENT
+        )
+        params.gravity = Gravity.FILL
+        params.screenBrightness = 0.01f
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        aodLayoutParams = params
+
+        val inflater = LayoutInflater.from(this)
+        val view = inflater.inflate(R.layout.overlay_aod, null)
+        view.fitsSystemWindows = false
+        aodView = view
+        aodLedDot = view.findViewById(R.id.aodLedDot)
+        aodInfoContainer = view.findViewById(R.id.aodInfoContainer)
+        tvAodTime = view.findViewById(R.id.tvAodTime)
+        tvAodDate = view.findViewById(R.id.tvAodDate)
+        tvAodBatteryIcon = view.findViewById(R.id.tvAodBatteryIcon)
+        tvAodBatteryText = view.findViewById(R.id.tvAodBatteryText)
+        tvAodAlertText = view.findViewById(R.id.tvAodAlertText)
+
+        val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                dismissAodAndWake()
+                return true
+            }
+            override fun onDown(e: MotionEvent): Boolean = true
+        })
+
+        view.setOnTouchListener { _, event ->
+            gestureDetector.onTouchEvent(event)
+            true
+        }
+
+        updateAodClockAndBattery()
+        applyAodDotStyle()
+
+        try {
+            windowManager?.addView(aodView, aodLayoutParams)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        aodClockHandler.removeCallbacks(aodClockRunnable)
+        aodClockHandler.post(aodClockRunnable)
+    }
+
+    private fun removeAodOverlay() {
+        aodAnimator?.cancel()
+        aodAnimator = null
+        aodClockHandler.removeCallbacks(aodClockRunnable)
+
+        aodView?.let { view ->
+            try {
+                if (view.isAttachedToWindow) {
+                    windowManager?.removeView(view)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        aodView = null
+        aodLedDot = null
+        aodInfoContainer = null
+        tvAodTime = null
+        tvAodDate = null
+        tvAodBatteryIcon = null
+        tvAodBatteryText = null
+        tvAodAlertText = null
+        aodLayoutParams = null
+    }
+
+    private fun dismissAodAndWake() {
+        isForcedAod = false
+        removeAodOverlay()
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            @Suppress("DEPRECATION")
+            val wl = pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "lednotify:aod_wake"
+            )
+            wl.acquire(1000)
+        } catch (e: Exception) {
+            // ignore
+        }
+        evaluateLedVisibilityState()
+    }
+
+    private fun updateAodClockAndBattery() {
+        val cal = Calendar.getInstance()
+        val sdfTime = SimpleDateFormat("HH:mm", Locale.getDefault())
+        val sdfDate = SimpleDateFormat("EEEE, MMM d", Locale.getDefault())
+
+        tvAodTime?.text = sdfTime.format(cal.time)
+        tvAodDate?.text = sdfDate.format(cal.time)
+
+        if (isBatteryCharging) {
+            if (currentBatteryPct >= 90 || isBatteryFull) {
+                tvAodBatteryIcon?.text = "✓"
+                tvAodBatteryIcon?.setTextColor(0xFF00FF00.toInt())
+                tvAodBatteryText?.text = "$currentBatteryPct% · Fully Charged"
+            } else {
+                tvAodBatteryIcon?.text = "⚡"
+                tvAodBatteryIcon?.setTextColor(0xFFFF9100.toInt())
+                tvAodBatteryText?.text = "$currentBatteryPct% · Charging"
+            }
+        } else if (currentBatteryPct in 1..15) {
+            tvAodBatteryIcon?.text = "⚠️"
+            tvAodBatteryIcon?.setTextColor(0xFFFF0000.toInt())
+            tvAodBatteryText?.text = "$currentBatteryPct% · Low Battery"
+        } else {
+            tvAodBatteryIcon?.text = "🔋"
+            tvAodBatteryIcon?.setTextColor(0xFFAAAAAA.toInt())
+            tvAodBatteryText?.text = "$currentBatteryPct%"
+        }
+
+        if (activeAlertColors.isNotEmpty()) {
+            val count = activeAlertColors.size
+            val alertLabel = if (count == 1 && activeAlertNames.isNotEmpty()) {
+                activeAlertNames[0]
+            } else {
+                "$count pending alerts"
+            }
+            tvAodAlertText?.visibility = View.VISIBLE
+            tvAodAlertText?.text = alertLabel
+        } else {
+            tvAodAlertText?.visibility = View.GONE
+        }
+    }
+
+    private fun applyAodDotStyle() {
+        val dot = aodLedDot ?: return
+        val density = resources.displayMetrics.density
+        val ledPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val sizeDp = ledPrefs.getInt(KEY_SIZE, 2).coerceIn(2, 100)
+        val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
+
+        val (realScreenW, realScreenH) = getRealScreenSize(this)
+        val savedPosX = ledPrefs.getFloat(KEY_POS_X, -1f)
+        val savedPosY = ledPrefs.getFloat(KEY_POS_Y, -1f)
+
+        val dotX = if (savedPosX >= 0f) {
+            savedPosX.coerceIn(0f, (realScreenW - sizePx).coerceAtLeast(0).toFloat())
+        } else {
+            (realScreenW - sizePx).coerceAtLeast(0).toFloat()
+        }
+
+        val dotY = if (savedPosY >= 0f) {
+            savedPosY.coerceIn(0f, (realScreenH - sizePx).coerceAtLeast(0).toFloat())
+        } else {
+            0f
+        }
+
+        val shiftedX = (dotX + currentShiftX).coerceIn(0f, (realScreenW - sizePx).coerceAtLeast(0).toFloat())
+        val shiftedY = (dotY + currentShiftY).coerceIn(0f, (realScreenH - sizePx).coerceAtLeast(0).toFloat())
+
+        val lp = dot.layoutParams as? FrameLayout.LayoutParams ?: FrameLayout.LayoutParams(sizePx, sizePx)
+        lp.width = sizePx
+        lp.height = sizePx
+        lp.gravity = Gravity.TOP or Gravity.START
+        lp.leftMargin = shiftedX.toInt()
+        lp.topMargin = shiftedY.toInt()
+        dot.layoutParams = lp
+
+        val style = ledPrefs.getString(KEY_VISUAL_STYLE, STYLE_DOT) ?: STYLE_DOT
+        val dotDrawable = if (style == STYLE_RING) {
+            val strokePx = (3 * density).toInt().coerceIn(2, 8)
+            GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.TRANSPARENT)
+                setStroke(strokePx, activeColor)
+            }
+        } else {
+            GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(activeColor)
+            }
+        }
+        dot.background = dotDrawable
+
+        startAodAnimation()
+    }
+
+    private fun startAodAnimation() {
+        val dot = aodLedDot ?: return
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val pattern = prefs.getString(KEY_ANIMATION_PATTERN, PATTERN_BLINK) ?: PATTERN_BLINK
+
+        aodAnimator?.cancel()
+        when (pattern) {
+            PATTERN_SOLID -> {
+                dot.alpha = 1f
+                aodAnimator = null
+            }
+            PATTERN_PULSE -> {
+                val durationMs = maxOf(800L, activeSpeedMs.toLong() * 2)
+                aodAnimator = ObjectAnimator.ofFloat(dot, View.ALPHA, 0.15f, 1f).apply {
+                    duration = durationMs
+                    interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+                    repeatCount = ObjectAnimator.INFINITE
+                    repeatMode = ObjectAnimator.REVERSE
+                    start()
+                }
+            }
+            PATTERN_HEARTBEAT -> {
+                val kf0 = Keyframe.ofFloat(0.00f, 0.05f)
+                val kf1 = Keyframe.ofFloat(0.12f, 1.00f)
+                val kf2 = Keyframe.ofFloat(0.24f, 0.05f)
+                val kf3 = Keyframe.ofFloat(0.36f, 1.00f)
+                val kf4 = Keyframe.ofFloat(0.50f, 0.05f)
+                val kf5 = Keyframe.ofFloat(1.00f, 0.05f)
+                val pvh = PropertyValuesHolder.ofKeyframe(View.ALPHA, kf0, kf1, kf2, kf3, kf4, kf5)
+                val durationMs = maxOf(1200L, activeSpeedMs.toLong() * 2)
+                aodAnimator = ObjectAnimator.ofPropertyValuesHolder(dot, pvh).apply {
+                    duration = durationMs
+                    repeatCount = ObjectAnimator.INFINITE
+                    start()
+                }
+            }
+            else -> { // PATTERN_BLINK
+                val durationMs = activeSpeedMs.coerceIn(50, 3000).toLong()
+                aodAnimator = ObjectAnimator.ofFloat(dot, View.ALPHA, 1f, 0.05f).apply {
+                    duration = durationMs
+                    repeatCount = ObjectAnimator.INFINITE
+                    repeatMode = ObjectAnimator.REVERSE
+                    start()
+                }
+            }
+        }
+    }
     }
 
     private fun resolveActiveColorAndSpeed() {
