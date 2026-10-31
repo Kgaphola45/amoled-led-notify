@@ -63,8 +63,12 @@ class LedOverlayService : Service() {
     private var activeAlertSpeeds: IntArray = intArrayOf()
     private var activeAlertNames: Array<String> = arrayOf()
     private var activeAlertPatterns: Array<String> = arrayOf()
+    private var activeAlertPackages: Array<String> = arrayOf()
     private val cycleHandler = Handler(Looper.getMainLooper())
     private var cycleIndex = 0
+
+    // Foreground app suppression & monitoring
+    private val foregroundCheckHandler = Handler(Looper.getMainLooper())
 
     // Screen and lockscreen awareness
     private var isScreenOn = true
@@ -106,6 +110,7 @@ class LedOverlayService : Service() {
     // Auto-off timer
     private var notificationStartTimeMs: Long = System.currentTimeMillis()
     private val timeoutHandler = Handler(Looper.getMainLooper())
+    private var isTimedOut = false
 
     // Burn-in protection (Pixel shift)
     private val pixelShiftOffsets = arrayOf(
@@ -133,6 +138,13 @@ class LedOverlayService : Service() {
             val covered = distance < threshold
             if (isProximityCovered != covered) {
                 isProximityCovered = covered
+                if (!covered && !isScreenOn) {
+                    // Pulled out of pocket with screen off: briefly wake for AOD
+                    val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    if (prefs.getBoolean(KEY_AOD_MODE, true) && shouldActivateAod()) {
+                        wakeScreenBrieflyForAod()
+                    }
+                }
                 evaluateLedVisibilityState()
             }
         }
@@ -145,6 +157,7 @@ class LedOverlayService : Service() {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     isScreenOn = false
+                    foregroundCheckHandler.removeCallbacksAndMessages(null)
                     val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     val aodEnabled = prefs.getBoolean(KEY_AOD_MODE, true)
                     if (aodEnabled && !isManualMode && shouldActivateAod()) {
@@ -156,12 +169,19 @@ class LedOverlayService : Service() {
                     isScreenOn = true
                     isForcedAod = false
                     removeAodOverlay()
+                    foregroundCheckHandler.removeCallbacksAndMessages(null)
+                    foregroundCheckHandler.postDelayed(foregroundCheckRunnable, 500)
                     evaluateLedVisibilityState()
                 }
                 Intent.ACTION_USER_PRESENT -> {
                     isScreenOn = true
                     isForcedAod = false
                     removeAodOverlay()
+                    foregroundCheckHandler.removeCallbacksAndMessages(null)
+                    foregroundCheckHandler.postDelayed(foregroundCheckRunnable, 500)
+                    evaluateLedVisibilityState()
+                }
+                NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED -> {
                     evaluateLedVisibilityState()
                 }
                 Intent.ACTION_POWER_CONNECTED -> {
@@ -210,7 +230,7 @@ class LedOverlayService : Service() {
 
     private fun shouldActivateAod(): Boolean {
         if (!LedTileService.isMasterEnabled(this)) return false
-        if (isWithinDndHours()) return false
+        if (isDndOrQuietActive()) return false
         if (isProximityCovered) return false
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val batteryCutoff = prefs.getInt(KEY_LOW_BATTERY_CUTOFF, 15)
@@ -270,7 +290,33 @@ class LedOverlayService : Service() {
     }
 
     private val timeoutRunnable = Runnable {
+        isTimedOut = true
         evaluateLedVisibilityState()
+    }
+
+    private val foregroundCheckRunnable = object : Runnable {
+        override fun run() {
+            if (isScreenOn && overlayView != null && !isManualMode) {
+                val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                if (prefs.getBoolean(KEY_SUPPRESS_WHEN_APP_FOREGROUND, true)) {
+                    val fgApp = ForegroundAppDetector.getForegroundPackage(this@LedOverlayService)
+                    val isInsideNotifyingApp = fgApp != null && (
+                        fgApp == currentPackageName || activeAlertPackages.contains(fgApp)
+                    )
+                    if (isInsideNotifyingApp) {
+                        if (overlayView?.visibility == View.VISIBLE) {
+                            overlayView?.visibility = View.GONE
+                            pauseBlinkAnimation()
+                        }
+                    } else if (overlayView?.visibility != View.VISIBLE) {
+                        evaluateLedVisibilityState()
+                    }
+                }
+            }
+            if (isScreenOn) {
+                foregroundCheckHandler.postDelayed(this, 1500)
+            }
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
