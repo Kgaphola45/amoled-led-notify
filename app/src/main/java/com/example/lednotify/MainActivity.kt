@@ -175,17 +175,17 @@ class MainActivity : ComponentActivity() {
 
     private fun setupSizeControl() {
         val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
-        val savedSize = prefs.getInt(LedOverlayService.KEY_SIZE, 22).coerceIn(2, 100)
+        val savedSize = prefs.getInt(LedOverlayService.KEY_SIZE, 22).coerceIn(10, 100)
 
         tvSizeLabel.text = "LED Dot Size: ${savedSize}dp"
-        seekBarSize.max = 98 // range 0 to 98 corresponds to 2 to 100 dp
-        seekBarSize.progress = (savedSize - 2).coerceAtLeast(0)
+        seekBarSize.max = 90 // range 0 to 90 corresponds to 10 to 100 dp
+        seekBarSize.progress = (savedSize - 10).coerceAtLeast(0)
 
         updatePreviewDot(savedSize, AppColorManager.getDefaultColor(this))
 
         seekBarSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val currentSize = (progress + 2).coerceIn(2, 100)
+                val currentSize = (progress + 10).coerceIn(10, 100)
                 tvSizeLabel.text = "LED Dot Size: ${currentSize}dp"
                 prefs.edit().putInt(LedOverlayService.KEY_SIZE, currentSize).apply()
                 val currentColor = AppColorManager.getDefaultColor(this@MainActivity)
@@ -347,7 +347,7 @@ class MainActivity : ComponentActivity() {
             }
             requestNotificationPermissionIfNeeded()
             LedOverlayService.startPositioning(this)
-            Toast.makeText(this, "Touch anywhere on screen to place the dot!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "LED dot is active on screen! Touch and drag it anywhere you want.", Toast.LENGTH_SHORT).show()
         }
 
         syncPositionSliders()
@@ -422,7 +422,7 @@ class MainActivity : ComponentActivity() {
             }
             requestNotificationPermissionIfNeeded()
             LedOverlayService.start(this)
-            Toast.makeText(this, "LED overlay started! Tap black screen to dismiss.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "LED overlay started! You can drag the dot anywhere on screen.", Toast.LENGTH_SHORT).show()
         }
 
         btnStopLed.setOnClickListener {

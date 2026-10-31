@@ -302,8 +302,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:max="98"
-                android:progress="20" />
+                android:max="90"
+                android:progress="12" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -314,7 +314,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="2dp"
+                    android:text="10dp"
                     android:textColor="#777777"
                     android:textSize="12sp" />
 
@@ -387,7 +387,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:gravity="center"
-                android:text="Tip: In positioning mode, touch anywhere on screen to place the dot. In normal notification mode, tap anywhere on the black screen to dismiss."
+                android:text="Tip: The LED dot is a floating overlay. Touch and drag the dot directly on your screen to place it anywhere (including corners). Use STOP LED to turn it off."
                 android:textColor="#888888"
                 android:textSize="12sp" />
         </LinearLayout>

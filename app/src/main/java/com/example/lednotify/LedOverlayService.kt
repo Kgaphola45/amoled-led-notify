@@ -141,8 +141,18 @@ class LedOverlayService : Service() {
             globalColor
         }
 
-        // If overlay already exists, just update dot color dynamically
+        val sizeDp = ledPrefs.getInt(KEY_SIZE, 22).coerceIn(10, 100)
+        val density = resources.displayMetrics.density
+        val sizePx = (sizeDp * density).toInt().coerceAtLeast(10)
+
+        // If overlay already exists, just update dot color and size dynamically
         if (overlayView != null && ledDot != null) {
+            val dotLayoutParams = ledDot?.layoutParams
+            if (dotLayoutParams != null) {
+                dotLayoutParams.width = sizePx
+                dotLayoutParams.height = sizePx
+                ledDot?.layoutParams = dotLayoutParams
+            }
             val drawable = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(resolvedColor)
@@ -180,10 +190,6 @@ class LedOverlayService : Service() {
             params.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
-
-        val sizeDp = ledPrefs.getInt(KEY_SIZE, 22).coerceIn(10, 100)
-        val density = resources.displayMetrics.density
-        val sizePx = (sizeDp * density).toInt().coerceAtLeast(10)
 
         val savedPosX = ledPrefs.getFloat(KEY_POS_X, -1f)
         val savedPosY = ledPrefs.getFloat(KEY_POS_Y, -1f)
@@ -332,6 +338,10 @@ class LedOverlayService : Service() {
                 }
             }
             ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun startPositioning(context: Context) {
+            start(context)
         }
 
         fun stop(context: Context) {
