@@ -67,6 +67,8 @@ class LedOverlayService : Service() {
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Shows the notification LED dot overlay"
+                setShowBadge(false)
+                enableLights(false)
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager?.createNotificationChannel(channel)
