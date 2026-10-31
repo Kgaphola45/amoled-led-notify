@@ -120,7 +120,7 @@ class NotificationListener : NotificationListenerService() {
                 continue
             }
 
-            val isMissedCall = (sbn.notification.category == Notification.CATEGORY_MISSED_CALL) ||
+            val isMissedCall = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) sbn.notification.category == Notification.CATEGORY_MISSED_CALL else sbn.notification.category == "missed_call") ||
                     (pkg in MISSED_CALL_PACKAGES && (title?.contains("missed", ignoreCase = true) == true || title?.contains("call", ignoreCase = true) == true))
 
             val isSms = pkg in SMS_PACKAGES || sbn.notification.category == Notification.CATEGORY_MESSAGE

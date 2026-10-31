@@ -1000,6 +1000,89 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun setupSystemAndHardwareTriggers() {
+        val prefs = getSharedPreferences(LedOverlayService.PREFS_NAME, Context.MODE_PRIVATE)
+
+        switchBatteryIndicator.isChecked = prefs.getBoolean(LedOverlayService.KEY_BATTERY_INDICATOR_ENABLED, true)
+        switchBatteryIndicator.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(LedOverlayService.KEY_BATTERY_INDICATOR_ENABLED, isChecked).apply()
+        }
+
+        switchLowBatteryWarning.isChecked = prefs.getBoolean(LedOverlayService.KEY_LOW_BATTERY_WARNING, true)
+        switchLowBatteryWarning.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(LedOverlayService.KEY_LOW_BATTERY_WARNING, isChecked).apply()
+        }
+
+        val density = resources.displayMetrics.density
+
+        fun updateColorButton(btn: Button, color: Int) {
+            val drawable = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+                setStroke((2 * density).toInt(), Color.WHITE)
+            }
+            btn.background = drawable
+        }
+
+        val currentMissedColor = prefs.getInt(LedOverlayService.KEY_MISSED_CALL_COLOR, 0xFFFF1744.toInt())
+        updateColorButton(btnMissedCallColor, currentMissedColor)
+
+        btnMissedCallColor.setOnClickListener {
+            val colorChoices = intArrayOf(
+                0xFFFF1744.toInt(), // Electric Crimson
+                0xFFFF0000.toInt(), // Vivid Red
+                0xFF00E5FF.toInt(), // Cyan
+                0xFFD500F9.toInt(), // Electric Purple
+                0xFFFF9100.toInt(), // Amber
+                0xFF00FF00.toInt()  // Lime
+            )
+            val names = arrayOf("Electric Crimson (Default)", "Vivid Red", "Cyan Blue", "Electric Purple", "Amber", "Green")
+            val current = prefs.getInt(LedOverlayService.KEY_MISSED_CALL_COLOR, 0xFFFF1744.toInt())
+            val selectedIdx = colorChoices.indexOf(current).coerceAtLeast(0)
+
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Missed Call Alert Color")
+                .setSingleChoiceItems(names, selectedIdx) { dialog, which ->
+                    val chosen = colorChoices[which]
+                    prefs.edit().putInt(LedOverlayService.KEY_MISSED_CALL_COLOR, chosen).apply()
+                    updateColorButton(btnMissedCallColor, chosen)
+                    dialog.dismiss()
+                    Toast.makeText(this, "Missed call color updated", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        val currentSmsColor = prefs.getInt(LedOverlayService.KEY_SMS_COLOR, 0xFFFFD600.toInt())
+        updateColorButton(btnSmsColor, currentSmsColor)
+
+        btnSmsColor.setOnClickListener {
+            val colorChoices = intArrayOf(
+                0xFFFFD600.toInt(), // Vibrant Gold / Amber
+                0xFF00E5FF.toInt(), // Cyan
+                0xFF00FF00.toInt(), // Lime
+                0xFFFF007F.toInt(), // Hot Pink
+                0xFF0066FF.toInt(), // Blue
+                0xFFFFFFFF.toInt()  // Pure White
+            )
+            val names = arrayOf("Vibrant Gold (Default)", "Cyan Blue", "Lime Green", "Hot Pink", "Electric Blue", "Pure White")
+            val current = prefs.getInt(LedOverlayService.KEY_SMS_COLOR, 0xFFFFD600.toInt())
+            val selectedIdx = colorChoices.indexOf(current).coerceAtLeast(0)
+
+            android.app.AlertDialog.Builder(this)
+                .setTitle("SMS Message Alert Color")
+                .setSingleChoiceItems(names, selectedIdx) { dialog, which ->
+                    val chosen = colorChoices[which]
+                    prefs.edit().putInt(LedOverlayService.KEY_SMS_COLOR, chosen).apply()
+                    updateColorButton(btnSmsColor, chosen)
+                    dialog.dismiss()
+                    Toast.makeText(this, "SMS alert color updated", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+    }
+
     private fun setupActionButtons() {
         btnTestLed.setOnClickListener {
             if (!Settings.canDrawOverlays(this)) {
