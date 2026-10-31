@@ -93,7 +93,7 @@ class LedOverlayService : Service() {
         )
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.led_circle)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("AMOLED LED Notify")
             .setContentText("LED dot active")
             .setContentIntent(contentPendingIntent)
@@ -153,9 +153,9 @@ class LedOverlayService : Service() {
                 globalColor
             })
 
-        val sizeDp = ledPrefs.getInt(KEY_SIZE, 22).coerceIn(10, 100)
+        val sizeDp = ledPrefs.getInt(KEY_SIZE, 2).coerceIn(2, 100)
         val density = resources.displayMetrics.density
-        val sizePx = (sizeDp * density).toInt().coerceAtLeast(10)
+        val sizePx = (sizeDp * density).toInt().coerceAtLeast(2)
 
         // If overlay already exists, just update dot color and size dynamically
         if (overlayView != null && ledDot != null) {
