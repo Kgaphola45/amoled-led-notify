@@ -56,6 +56,7 @@ class LedOverlayService : Service() {
     private var activeAlertColors: IntArray = intArrayOf()
     private var activeAlertSpeeds: IntArray = intArrayOf()
     private var activeAlertNames: Array<String> = arrayOf()
+    private var activeAlertPatterns: Array<String> = arrayOf()
     private val cycleHandler = Handler(Looper.getMainLooper())
     private var cycleIndex = 0
 
@@ -68,8 +69,11 @@ class LedOverlayService : Service() {
     private var proximitySensor: Sensor? = null
     private var isProximityCovered = false
 
-    // Battery monitoring
+    // Battery monitoring & hardware triggers
     private var currentBatteryPct = 100
+    private var isBatteryCharging = false
+    private var isBatteryFull = false
+    private var isPluggedIn = false
 
     // Auto-off timer
     private var notificationStartTimeMs: Long = System.currentTimeMillis()
@@ -122,9 +126,24 @@ class LedOverlayService : Service() {
                 Intent.ACTION_USER_PRESENT -> {
                     evaluateLedVisibilityState()
                 }
+                Intent.ACTION_POWER_CONNECTED -> {
+                    isPluggedIn = true
+                    isBatteryCharging = true
+                    evaluateLedVisibilityState()
+                }
+                Intent.ACTION_POWER_DISCONNECTED -> {
+                    isPluggedIn = false
+                    isBatteryCharging = false
+                    evaluateLedVisibilityState()
+                }
                 Intent.ACTION_BATTERY_CHANGED -> {
                     val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
                     val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                    val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                    val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
+                    isPluggedIn = plugged != 0
+                    isBatteryCharging = isPluggedIn || status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+                    isBatteryFull = status == BatteryManager.BATTERY_STATUS_FULL || (level >= scale && level > 0)
                     if (level >= 0 && scale > 0) {
                         currentBatteryPct = (level * 100 / scale.toFloat()).toInt()
                         evaluateLedVisibilityState()
