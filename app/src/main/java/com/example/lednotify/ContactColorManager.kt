@@ -263,14 +263,14 @@ class ContactColorActivity : ComponentActivity() {
         }
 
         val tvTitle = TextView(this).apply {
-            text = "WhatsApp Contact Colors"
+            text = "Messaging Contact Colors"
             setTextColor(Color.WHITE)
             textSize = 18f
             paint.isFakeBoldText = true
         }
 
         val tvSubtitle = TextView(this).apply {
-            text = "Set custom LED colors & blink speeds per contact"
+            text = "Custom LED colors & blink speeds for WhatsApp, Telegram, Signal, Discord & Messages"
             setTextColor(Color.parseColor("#AAAAAA"))
             textSize = 12f
         }
