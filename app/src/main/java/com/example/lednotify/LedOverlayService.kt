@@ -828,7 +828,6 @@ class LedOverlayService : Service() {
             }
         }
     }
-    }
 
     private fun resolveActiveColorAndSpeed() {
         val ledPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -1291,6 +1290,7 @@ class LedOverlayService : Service() {
     }
 
     private fun removeOverlay() {
+        removeAodOverlay()
         dotAnimator?.cancel()
         dotAnimator = null
 
